@@ -120,7 +120,7 @@ dialog::backdrop { background: rgb(10 12 40 / .45) }
 .dash { max-width: 1280px; margin: 0 auto; padding-block: 18px 40px; display: grid; gap: 18px }
 .dash-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end }
 .dash-filters label { min-width: 170px }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 2px }
 .kpi span { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700 }
 .kpi b { font-family: var(--f-display); font-size: 24px; font-variant-numeric: tabular-nums }
@@ -132,11 +132,16 @@ dialog::backdrop { background: rgb(10 12 40 / .45) }
 .tscroll { overflow-x: auto }
 table.data { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px }
 table.data th { text-align: left; font-size: 11.5px; color: var(--muted); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap }
-table.data td { padding: 7px 8px; border-bottom: 1px solid var(--alt); white-space: nowrap }
+table.data td, table.data th { padding-inline: 6px }
+table.data td { padding: 7px 6px; border-bottom: 1px solid var(--alt); white-space: nowrap }
 table.data td.r, table.data th.r { text-align: right }
 .chart { position: relative }
 .chart svg { display: block; width: 100%; height: auto }
 .chart .tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; padding: 6px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -110%) }
+.due { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 700; white-space: nowrap }
+.due.late { background: var(--danger-bg); color: var(--danger) }
+.due.soon { background: var(--warn-bg); color: var(--warn) }
+.due.ok { background: var(--alt); color: var(--muted) }
 .toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-weight: 600; z-index: 20 }
 @media (prefers-reduced-motion: no-preference) { .item, button { transition: background .15s, border-color .15s } }
 </style>
@@ -183,6 +188,7 @@ table.data td.r, table.data th.r { text-align: right }
       <div class="suivi-top"><span class="pill" id="etatPill"></span><span class="progress" id="etatInfo"></span></div>
       <div class="grid">
         <label class="f">Commercial<input id="commercial" type="text" list="commerciaux" autocomplete="off"></label>
+        <label class="f"><span id="echLabel">Échéance de paiement</span><input id="suiviEch" type="date"></label>
         <div class="f" style="display:grid;gap:4px"><span style="font-size:12px;color:var(--muted);font-weight:600">Montant à encaisser</span><b id="montantDu" style="font-family:var(--f-display);font-size:20px"></b></div>
       </div>
       <datalist id="commerciaux"></datalist>
@@ -211,6 +217,7 @@ table.data td.r, table.data th.r { text-align: right }
         <label class="f">Note interne (réponse du client…)<input id="relNote" type="text"></label>
         <div class="actions"><button type="button" class="primary" id="relOk">Enregistrer la relance</button><button type="button" id="relNo">Annuler</button></div>
       </div>
+      <div class="progress" id="echList"></div>
       <ol class="hist" id="relHist"></ol>
     </div>
     <div class="confirm" id="confirmDel" hidden>Supprimer définitivement ce dossier ?
@@ -346,6 +353,7 @@ table.data td.r, table.data th.r { text-align: right }
       <details><summary class="progress">Voir les chiffres</summary><div class="tscroll"><table class="data" id="tMois"></table></div></details></div>
     <div class="panel"><h2>Prospects à relancer</h2><div class="tscroll"><table class="data" id="tRelance"></table></div></div>
   </div>
+  <div class="panel"><h2>Échéancier</h2><div class="tscroll"><table class="data" id="tEch"></table></div></div>
   <div class="panels">
     <div class="panel"><h2>Par commercial</h2><div class="tscroll"><table class="data" id="tCom"></table></div></div>
     <div class="panel"><h2>Par produit</h2><div class="tscroll"><table class="data" id="tProd"></table></div></div>
@@ -420,6 +428,25 @@ const clone = o => JSON.parse(JSON.stringify(o || {}));
 const ETATS = { brouillon: "Brouillon", devis: "Devis réalisé", suspens: "En suspens", paye: "Payé", perdu: "Perdu" };
 const addDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const etatOf = d => d.suivi?.etat || "brouillon";
+const addDaysFrom = (s, n) => { const d = new Date((s || today()) + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const addMonths = (s, n) => { const d = new Date((s || today()) + "T12:00:00"), day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); return d.toISOString().slice(0, 10); };
+const validiteJours = d => parseInt(String(d.validite || "").match(/\d+/)?.[0] || "30", 10);
+const joursAvant = s => Math.round((new Date(s + "T12:00:00") - new Date(today() + "T12:00:00")) / 864e5);
+function echeancesOf(d) {
+  const e = etatOf(d), sv = d.suivi || {}, k = calcul(d), out = [];
+  if (e === "devis" || e === "suspens") out.push({ type: "Paiement du devis", date: sv.echeance || addDaysFrom(sv.devis_le || d.date, validiteJours(d)), montant: k.total });
+  if (e === "paye" && k.assu && sv.paye_le) {
+    const fin = sv.echeance_contrat || addMonths(sv.paye_le, 12);
+    for (let i = k.mois; i < 12; i++) { const dt = addMonths(sv.paye_le, i); if (dt >= today()) { out.push({ type: "Prochain prélèvement", date: dt, montant: k.mens }); break; } }
+    out.push({ type: "Renouvellement du contrat", date: fin, montant: k.annuel });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+function duePill(date) {
+  const n = joursAvant(date), sp = document.createElement("span");
+  sp.className = "due " + (n < 0 ? "late" : n <= 7 ? "soon" : "ok");
+  sp.textContent = n < 0 ? `en retard de ${-n} j` : n === 0 ? "aujourd'hui" : `dans ${n} j`; return sp;
+}
 const aRelancer = d => etatOf(d) === "suspens" && (!d.suivi?.prochaine_relance || d.suivi.prochaine_relance <= today());
 let sample = null, view = "dos";
 let db = null, docs = [], currentId = null, cur = null, dirty = false, filter = "tous", agence = { ...AGENCE_DEF };
@@ -620,7 +647,7 @@ function renderList() {
     const pills = document.createElement("span"); pills.className = "pills"; pills.append(pe, p);
     top.append(n, pills);
     const s = document.createElement("div"); s.className = "sub";
-    s.textContent = (CAT[d.demarche]?.[0] || "") + (d.vehicule?.immatriculation && d.famille !== "pc" ? " · " + d.vehicule.immatriculation : "") + " · " + eur(calcul(d).total) + (d.commercial ? " · " + d.commercial : "");
+    s.textContent = (CAT[d.demarche]?.[0] || "") + (d.vehicule?.immatriculation && d.famille !== "pc" ? " · " + d.vehicule.immatriculation : "") + " · " + eur(calcul(d).total) + (d.commercial ? " · " + d.commercial : "") + (echeancesOf(d)[0] ? " · éch. " + frDate(echeancesOf(d)[0].date) : "");
     const m = document.createElement("div"); m.className = "num"; m.textContent = d.numero || "";
     b.append(top, s, m); b.onclick = () => open(x.id); list.append(b);
   }
@@ -854,7 +881,7 @@ function buildDocx(d) {
 
 let downloads = null;
 async function ensureNumero() {
-  if (etatOf(cur) === "brouillon") { cur.suivi = { ...blank().suivi, ...cur.suivi, etat: "devis", devis_le: today() }; dirty = true; if (!db) refresh(); }
+  if (etatOf(cur) === "brouillon") { cur.suivi = { ...blank().suivi, ...cur.suivi, etat: "devis", devis_le: today(), echeance: cur.suivi?.echeance || addDaysFrom(today(), validiteJours(cur)) }; dirty = true; if (!db) refresh(); }
   if (!cur.numero) { if (db) { if (!(await save())) return false; } else cur.numero = nextNumero(cur); }
   else if (dirty && db) await save();
   return true;
@@ -884,6 +911,13 @@ function renderSuivi() {
     : e === "suspens" ? `Devis du ${frDate(sv.devis_le)} non payé · ${rel.length} relance(s) · prochaine relance le ${frDate(sv.prochaine_relance)}`
     : e === "devis" ? `Devis réalisé le ${frDate(sv.devis_le)}, en attente du paiement` : e === "perdu" ? "Prospect perdu" : "Le devis n'est pas encore réalisé";
   $("montantDu").textContent = eur(k.total);
+  const contrat = e === "paye" && k.assu;
+  $("echLabel").textContent = contrat ? "Échéance du contrat (renouvellement)" : "Échéance de paiement";
+  $("suiviEch").closest("label").hidden = !(e === "devis" || e === "suspens" || contrat);
+  const ech = echeancesOf(cur);
+  $("suiviEch").value = (contrat ? ech.find(x => x.type === "Renouvellement du contrat") : ech.find(x => x.type === "Paiement du devis"))?.date || "";
+  const el = $("echList"); el.textContent = "";
+  ech.forEach(x => { const row = document.createElement("div"); row.append(document.createTextNode(`${x.type} : ${frDate(x.date)} · ${eur(x.montant)} `), duePill(x.date)); el.append(row); });
   $("bDevis").disabled = e !== "brouillon"; $("bPaye").disabled = e === "paye";
   $("bSuspens").disabled = e === "paye" || e === "suspens" || e === "perdu"; $("bRelance").disabled = e === "paye" || e === "perdu"; $("bPerdu").disabled = e === "perdu" || e === "paye";
   const h = $("relHist"); h.textContent = "";
@@ -895,11 +929,15 @@ async function setSuivi(patch, msg) {
   cur.suivi = { ...blank().suivi, ...cur.suivi, ...patch }; dirty = true;
   if (db) await save(msg); else { refresh(); toast(msg + " (non enregistré dans cette vue)"); }
 }
-$("bDevis").onclick = () => setSuivi({ etat: "devis", devis_le: today() }, "Devis réalisé enregistré");
+$("suiviEch").addEventListener("change", e => {
+  const v = e.target.value; cur.suivi ||= blank().suivi;
+  if (etatOf(cur) === "paye") cur.suivi.echeance_contrat = v; else cur.suivi.echeance = v;
+  markDirty(); });
+$("bDevis").onclick = () => setSuivi({ etat: "devis", devis_le: today(), echeance: cur.suivi?.echeance || addDaysFrom(today(), validiteJours(cur)) }, "Devis réalisé enregistré");
 $("bPaye").onclick = () => { $("relForm").hidden = true; $("payForm").hidden = false; $("payMontant").value = calcul(cur).total; $("payDate").value = today(); $("payMontant").focus(); };
 $("payNo").onclick = () => { $("payForm").hidden = true; };
 $("payOk").onclick = async () => { $("payForm").hidden = true;
-  await setSuivi({ etat: "paye", paye_le: $("payDate").value || today(), montant_paye: num($("payMontant").value), mode: $("payMode").value, prochaine_relance: "", devis_le: cur.suivi?.devis_le || today() }, "Paiement enregistré"); };
+  await setSuivi({ etat: "paye", paye_le: $("payDate").value || today(), montant_paye: num($("payMontant").value), mode: $("payMode").value, prochaine_relance: "", echeance_contrat: cur.suivi?.echeance_contrat || addMonths($("payDate").value || today(), 12), devis_le: cur.suivi?.devis_le || today() }, "Paiement enregistré"); };
 $("bSuspens").onclick = () => setSuivi({ etat: "suspens", devis_le: cur.suivi?.devis_le || today(), prochaine_relance: cur.suivi?.prochaine_relance || addDays(3) }, "Dossier mis en suspens, relance prévue");
 $("bPerdu").onclick = () => setSuivi({ etat: "perdu", prochaine_relance: "" }, "Prospect marqué perdu");
 function msgModele() {
@@ -964,10 +1002,12 @@ function renderDash() {
   const susp = all.filter(x => x.e === "suspens"), due = all.filter(x => aRelancer(x.d)), attente = all.filter(x => x.e === "devis");
   const sum = a => a.reduce((s, x) => s + x.m, 0), enc = payes.reduce((s, x) => s + num(x.d.suivi?.montant_paye), 0);
   const conv = devis.length ? Math.round(devis.filter(x => x.e === "paye").length / devis.length * 100) : 0;
+  const echAll = all.flatMap(x => echeancesOf(x.d).map(ec => ({ ...ec, x })));
   const K = $("kpis"); K.textContent = "";
   [["Devis réalisés", devis.length, eur(sum(devis)) + " devisés"], ["Encaissé", eur(enc), payes.length + " paiement(s)"],
    ["En attente de paiement", eur(sum(attente)), attente.length + " devis"], ["En suspens", eur(sum(susp)), susp.length + " prospect(s)"],
-   ["Taux de transformation", conv + " %", "devis payés / devis réalisés"], ["À relancer aujourd'hui", due.length, due.length ? "voir la liste" : "rien en retard", due.length > 0]]
+   ["Taux de transformation", conv + " %", "devis payés / devis réalisés"], ["À relancer aujourd'hui", due.length, due.length ? "voir la liste" : "rien en retard", due.length > 0],
+   ["Échéances dépassées", echAll.filter(x => x.date < today()).length, eur(echAll.filter(x => x.date < today()).reduce((s, x) => s + x.montant, 0)) + " concernés", echAll.some(x => x.date < today())]]
   .forEach(([l, v, sub, warn]) => { const d = document.createElement("div"); d.className = "kpi" + (warn ? " alert-k" : "");
     const a = document.createElement("span"), b = document.createElement("b"), c = document.createElement("small"); a.textContent = l; b.textContent = v; c.textContent = sub; d.append(a, b, c); K.append(d); });
   // encaissé par mois : 12 derniers mois
@@ -979,8 +1019,14 @@ function renderDash() {
   // relances
   const rows = due.sort((a, b) => (a.d.suivi?.prochaine_relance || "").localeCompare(b.d.suivi?.prochaine_relance || "")).map(x => {
     const b = document.createElement("button"); b.type = "button"; b.textContent = "Ouvrir"; b.onclick = () => { showView("dos"); open(x.id); };
-    return [x.d.client?.nom || "Sans nom", x.d.commercial || "—", (x.d.suivi?.relances || []).length, frDate(x.d.suivi?.prochaine_relance), eur(x.m), b]; });
-  table($("tRelance"), ["Client", "Commercial", "Relances", "Prévue le", "Montant", ""], rows, 2);
+    const ec = echeancesOf(x.d)[0], ecCell = document.createElement("span");
+    if (ec) ecCell.append(document.createTextNode(frDate(ec.date) + " "), duePill(ec.date)); else ecCell.textContent = "—";
+    return [x.d.client?.nom || "Sans nom", x.d.commercial || "—", (x.d.suivi?.relances || []).length, frDate(x.d.suivi?.prochaine_relance), ecCell, eur(x.m), b]; });
+  table($("tRelance"), ["Client", "Commercial", "Relances", "Relance prévue", "Échéance", "Montant", ""], rows, 2);
+  const echRows = echAll.sort((a, b) => a.date.localeCompare(b.date)).map(ec => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "Ouvrir"; b.onclick = () => { showView("dos"); open(ec.x.id); };
+    return [frDate(ec.date), duePill(ec.date), ec.type, ec.x.d.client?.nom || "Sans nom", CAT[ec.x.d.demarche]?.[0] || "—", ec.x.d.commercial || "—", eur(ec.montant), b]; });
+  table($("tEch"), ["Échéance", "Délai", "Type", "Client", "Produit", "Commercial", "Montant", ""], echRows, 6);
   // par commercial
   const group = key => { const g = new Map(); for (const x of all) { const k = key(x); if (!g.has(k)) g.set(k, []); g.get(k).push(x); } return [...g]; };
   const line = (name, xs) => { const dv = xs.filter(x => x.e !== "brouillon" && inPeriode(x.d.suivi?.devis_le || x.d.date, per)), py = xs.filter(x => x.e === "paye" && inPeriode(x.d.suivi?.paye_le, per));
