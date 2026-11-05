@@ -1,0 +1,30 @@
+{
+  "numero": "JYV-2026-1105-PC-01",
+  "date": "05/11/2026",
+  "validite": "30 jours",
+  "demarche": "pc_perte",
+  "frais_service": 19.9,
+  "agence": {
+    "adresse": "47 rue Jean Jaurès 93200 Saint-Denis",
+    "orias": "22 00 65 93",
+    "tel": "01 48 20 98 27",
+    "mail": "contact@jyvis-assurances.com"
+  },
+  "partenaire": {
+    "nom": "L'Olivier Assurance",
+    "couleur": "#2E7D32"
+  },
+  "titulaire": {
+    "nom": "DUPONT Jean",
+    "adresse": "12 avenue de la République 93200 Saint-Denis",
+    "tel": "06 00 00 00 00",
+    "mail": "jean.dupont@example.com"
+  },
+  "permis": {
+    "numero": "123456789012",
+    "categories": "B",
+    "date_delivrance": "12/06/2015",
+    "delivre_par": "Préfecture de la Seine-Saint-Denis",
+    "date_naissance": "01/01/1990"
+  }
+}

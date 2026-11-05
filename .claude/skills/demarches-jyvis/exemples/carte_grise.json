@@ -2,7 +2,7 @@
   "numero": "JYV-2026-1105-CG-01",
   "date": "05/11/2026",
   "validite": "30 jours",
-  "demarche": "changement_titulaire",
+  "demarche": "cg_changement_titulaire",
   "taux_regional_cv": 54.95,
   "frais_service": 29.90,
   "malus_y6": 0,
