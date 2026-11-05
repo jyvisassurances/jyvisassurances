@@ -133,7 +133,8 @@ dialog::backdrop { background: rgb(10 12 40 / .45) }
       <h1><span class="num" id="hNum">—</span><span id="hTitle">Nouveau dossier</span></h1>
       <div class="actions">
         <button class="primary" id="btnSave" type="button">Enregistrer</button>
-        <button id="btnPdf" type="button">Télécharger le devis PDF</button>
+        <button id="btnPdf" type="button">Devis PDF</button>
+        <button id="btnWord" type="button">Devis Word</button>
         <button id="btnDup" type="button">Dupliquer</button>
         <button class="danger" id="btnDel" type="button">Supprimer</button>
       </div>
@@ -237,6 +238,7 @@ dialog::backdrop { background: rgb(10 12 40 / .45) }
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
 <script>
 "use strict";
 const Y4 = 11, Y5 = 2.76, TIMBRE = 25;
@@ -541,12 +543,101 @@ function buildPdf(d) {
   return pdf;
 }
 
+/* ---------- Word (.docx) à la charte JyVis, modifiable dans Word ---------- */
+function logoPng() {
+  const cv = document.createElement("canvas"), s = 240, r = 96, x = s / 2, y = s / 2; cv.width = cv.height = s;
+  const g = cv.getContext("2d"); g.fillStyle = "#141B6B"; g.fillRect(0, 0, s, s);
+  g.strokeStyle = "#fff"; g.lineWidth = r * .14; g.beginPath();
+  for (let i = 0; i < 6; i++) { const a = (90 + 60 * i) * Math.PI / 180; g[i ? "lineTo" : "moveTo"](x + r * Math.cos(a), y - r * Math.sin(a)); }
+  g.closePath(); g.stroke(); g.fillStyle = "#fff";
+  for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { g.beginPath(); g.arc(x + dx * r * .2, y + dy * r * .2, r * .2, 0, 7); g.fill(); }
+  g.strokeStyle = "#141B6B"; g.lineWidth = r * .09; g.beginPath();
+  g.moveTo(x - r * .42, y - r * .42); g.lineTo(x + r * .42, y + r * .42); g.moveTo(x - r * .42, y + r * .42); g.lineTo(x + r * .42, y - r * .42); g.stroke();
+  const b = atob(cv.toDataURL("image/png").split(",")[1]); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u;
+}
+function buildDocx(d) {
+  const X = window.docx, { Paragraph: P, TextRun: T, Table, TableRow: TR, TableCell: TC, WidthType, ShadingType, BorderStyle, AlignmentType: AL, VerticalAlign } = X;
+  const NAVY = "141B6B", ALT = "E9EDF6", GREY = "5A607A", LIGHT = "C9CCE8", DARK = "0E1452", F = "Arial";
+  const [lib, fam, , piecesDef] = CAT[d.demarche]; const k = calcul(d); const part = d.partenaire || "Partenaire";
+  const run = (text, o = {}) => new T({ text: String(text ?? ""), font: F, size: 18, ...o });
+  const para = (runs, o = {}) => new P({ children: [].concat(runs), spacing: { before: 0, after: 0 }, ...o });
+  const NB = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, noB = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
+  const box = c => { const b = { style: BorderStyle.SINGLE, size: 8, color: c }; return { top: b, bottom: b, left: b, right: b }; };
+  const cell = (children, o = {}) => new TC({ children: [].concat(children), borders: noB, margins: { top: 60, bottom: 60, left: 120, right: 120 }, verticalAlign: VerticalAlign.CENTER, ...o });
+  const fillC = c => ({ fill: c, type: ShadingType.CLEAR, color: "auto" });
+  const CW = 10506;
+  const full = (rows, cols = [CW], borders = noB) => new Table({ width: { size: CW, type: WidthType.DXA }, columnWidths: cols, layout: X.TableLayoutType.FIXED, borders, rows });
+  const gap = (n = 90) => new P({ children: [], spacing: { before: 0, after: n } });
+  const section = t => full([new TR({ children: [cell(para(run(t.toUpperCase(), { bold: true, color: "FFFFFF" })), { shading: fillC(NAVY) })] })]);
+  const kv = (rows, cols = 2) => {
+    const n = Math.ceil(rows.length / cols), out = [];
+    for (let i = 0; i < n; i++) { const cells = [];
+      for (let j = 0; j < cols; j++) { const r = rows[i + j * n] || ["", ""]; const sh = i % 2 === 0 ? { shading: fillC(ALT) } : {};
+        cells.push(cell(para(run(r[0], { color: GREY, size: 16 })), sh), cell(para(run(r[1] || (r[0] ? "—" : ""), { bold: true, color: DARK })), sh)); }
+      out.push(new TR({ children: cells })); }
+    return full(out, cols === 1 ? [4000, 6506] : [2100, 3153, 2100, 3153]);
+  };
+  const c = d.client || {};
+  const head = full([new TR({ children: [
+    cell(new P({ children: [new X.ImageRun({ data: logoPng(), transformation: { width: 58, height: 58 } })] }), { shading: fillC(NAVY), width: { size: 12, type: WidthType.PERCENTAGE } }),
+    cell([para(run("JYVIS ASSURANCES", { bold: true, size: 40, color: "FFFFFF" })),
+      para(run("« Assurer son quotidien, c'est assurer son avenir »", { italics: true, color: LIGHT })), gap(80),
+      para(run(agence.adresse, { color: LIGHT, size: 16 })), para(run(`ORIAS ${agence.orias}  •  Tél. ${agence.tel}`, { color: LIGHT, size: 16 })), para(run(agence.mail, { color: LIGHT, size: 16 }))],
+      { shading: fillC(NAVY), width: { size: 53, type: WidthType.PERCENTAGE } }),
+    cell([para(run("COURTIER DES PROFESSIONNELS", { bold: true, color: LIGHT, size: 15 }), { alignment: AL.RIGHT }),
+      para(run(fam === "cg" ? "DEVIS CARTE GRISE" : "DEVIS PERMIS DE CONDUIRE", { bold: true, color: "FFFFFF", size: 24 }), { alignment: AL.RIGHT }), gap(80),
+      para(run(`N° ${d.numero || "—"}`, { color: "FFFFFF", size: 16 }), { alignment: AL.RIGHT }),
+      para(run(`Date : ${frDate(d.date)}`, { color: "FFFFFF", size: 16 }), { alignment: AL.RIGHT }),
+      para(run(`Validité : ${d.validite || "—"}`, { color: "FFFFFF", size: 16 }), { alignment: AL.RIGHT })],
+      { shading: fillC(NAVY), width: { size: 35, type: WidthType.PERCENTAGE } }),
+  ] })], [1250, 5650, 3606]);
+  const title = full([new TR({ children: [
+    cell([para(run("Offre " + lib, { bold: true, size: 30, color: NAVY })), para(run("Démarche réalisée pour votre compte auprès de l'ANTS", { color: GREY }))], { width: { size: 68, type: WidthType.PERCENTAGE } }),
+    cell([para(run("PARTENAIRE", { bold: true, size: 14, color: GREY })), para(run(part, { bold: true, size: 22, color: /olivier/i.test(part) ? "2E7D32" : NAVY }))], { borders: box(LIGHT), width: { size: 32, type: WidthType.PERCENTAGE } }),
+  ] })], [7100, 3406]);
+  const ident = fam === "cg"
+    ? [section("Véhicule (carte grise actuelle)"), kv([["Immatriculation (A)", d.vehicule?.immatriculation], ["Marque (D.1)", d.vehicule?.marque], ["Modèle (D.3)", d.vehicule?.modele], ["VIN (E)", d.vehicule?.vin],
+        ["1re mise en circ. (B)", frDate(d.vehicule?.date_mec)], ["Puissance fiscale (P.6)", (d.vehicule?.puissance_fiscale || "—") + " CV"], ["Énergie (P.3)", d.vehicule?.energie], ["Ancien titulaire", d.vehicule?.ancien_titulaire]])]
+    : [section("Permis de conduire"), kv([["N° de permis", d.permis?.numero], ["Catégories", d.permis?.categories], ["Date de délivrance", frDate(d.permis?.date_delivrance)],
+        ["Délivré par", d.permis?.delivre_par], ["Date de naissance", frDate(d.permis?.date_naissance)], ["Motif", lib]])];
+  const rows = k.L.map(([a, b]) => [a, eur(b)]); rows.push(["Frais de service JyVis HT", eur(k.ht)]); if (d.tva) rows.push(["TVA 20 % sur frais de service", eur(k.tva)]);
+  const cardCell = (l, v, f) => cell([para(run(l, { bold: true, size: 15, color: f ? LIGHT : GREY }), { alignment: AL.CENTER }), para(run(eur(v), { bold: true, size: 30, color: f ? "FFFFFF" : NAVY }), { alignment: AL.CENTER })],
+    { borders: box(NAVY), ...(f ? { shading: fillC(NAVY) } : {}), width: { size: 33, type: WidthType.PERCENTAGE }, margins: { top: 140, bottom: 140, left: 120, right: 120 } });
+  const cards = full([new TR({ children: [cardCell("FRAIS OFFICIELS", k.taxes, 1), cardCell(d.tva ? "FRAIS DE SERVICE TTC" : "FRAIS DE SERVICE", k.frais, 0), cardCell("TOTAL À RÉGLER", k.total, 0)] })], [3502, 3502, 3502], { ...noB, insideVertical: { style: BorderStyle.SINGLE, size: 8, color: NAVY } });
+  const pay = full([new TR({ children: [cell([para(run(`Paiement à la signature : ${eur(k.total)}`, { bold: true, size: 21, color: NAVY })),
+    para(run("La démarche n'est déposée auprès de l'ANTS qu'après signature du présent devis, du mandat et réception du paiement.", { color: GREY, size: 15 }))], { borders: box(NAVY) })] })]);
+  const rec = new Set(d.pieces_recues || []), half = Math.ceil(piecesDef.length / 2);
+  const piece = p => p ? para([run(rec.has(p) ? "☒  " : "☐  ", { color: NAVY }), run(p, { color: DARK, size: 16 })]) : para(run(""));
+  const pieces = full([...Array(half)].map((_, i) => new TR({ children: [cell(piece(piecesDef[i]), { margins: { top: 30, bottom: 30, left: 120, right: 120 } }), cell(piece(piecesDef[i + half]), { margins: { top: 30, bottom: 30, left: 120, right: 120 } })] })), [5253, 5253]);
+  const sig = (a, b) => cell([para(run(a, { bold: true, size: 17, color: NAVY })), para(run(b, { color: GREY, size: 15 })), gap(420)], { borders: box(LIGHT), width: { size: 50, type: WidthType.PERCENTAGE } });
+  const sigs = full([new TR({ children: [sig("BON POUR ACCORD", "Le client — date, nom et signature"), sig(`JYVIS ASSURANCES × ${part.toUpperCase()}`, "Le conseiller")] })], [5253, 5253], { ...noB, insideVertical: { style: BorderStyle.SINGLE, size: 8, color: "FFFFFF" } });
+  const footer = new X.Footer({ children: [full([new TR({ children: [cell(para(run(`JYVIS ASSURANCES × ${part.toUpperCase()}  •  ${agence.adresse}  •  ORIAS ${agence.orias}  •  ${agence.tel}  •  ${agence.mail}`, { color: "FFFFFF", size: 12 }), { alignment: AL.CENTER }), { shading: fillC(NAVY) })] })])] });
+  const doc = new X.Document({ creator: "JyVis Assurances", title: `Devis ${d.numero || ""}`, sections: [{
+    properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 500, bottom: 700, left: 700, right: 700, footer: 250 } } },
+    footers: { default: footer },
+    children: [head, gap(140), title, gap(120), section("Client"), kv([["Nom / Raison sociale", c.nom], ["Adresse", c.adresse], ["Téléphone", c.tel], ["E-mail", c.mail]], 1), gap(),
+      ...ident, gap(), section("Détail des frais officiels"), kv(rows, 1), gap(), cards, gap(), pay, gap(), section("Pièces à fournir"), pieces, gap(120), sigs] }] });
+  return X.Packer.toBlob(doc);
+}
+
 let downloads = null;
+async function ensureNumero() {
+  if (!cur.numero) { if (db) { if (!(await save())) return false; } else cur.numero = nextNumero(cur.famille, cur.date); }
+  else if (dirty && db) await save();
+  return true;
+}
+const fileBase = () => `Devis_${cur.numero}_${(cur.client.nom || "client").replace(/[^\p{L}\d]+/gu, "_")}`;
+$("btnWord").onclick = async () => {
+  if (!window.docx) { toast("Le générateur Word n'a pas pu se charger"); return; }
+  if (!(await ensureNumero())) return;
+  if (!downloads) { toast("Téléchargement indisponible dans cette vue"); return; }
+  try { const blob = await buildDocx(cur); await downloads.save({ filename: fileBase() + ".docx", data: blob }); }
+  catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") toast("Téléchargement impossible"); }
+};
 $("btnPdf").onclick = async () => {
   if (!window.jspdf) { toast("Le générateur PDF n'a pas pu se charger"); return; }
-  if (!cur.numero) { if (db) { if (!(await save())) return; } else cur.numero = nextNumero(cur.famille, cur.date); }
-  else if (dirty && db) await save();
-  const pdf = buildPdf(cur), name = `Devis_${cur.numero}_${(cur.client.nom || "client").replace(/[^\p{L}\d]+/gu, "_")}.pdf`;
+  if (!(await ensureNumero())) return;
+  const pdf = buildPdf(cur), name = fileBase() + ".pdf";
   if (!downloads) { toast("Téléchargement indisponible dans cette vue"); return; }
   try { await downloads.save({ filename: name, data: pdf.output("blob") }); } catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") toast("Téléchargement impossible"); }
 };
@@ -556,7 +647,7 @@ cur = blank("cg"); renderChips(); loadForm();
 (async () => {
   const c = window.claude;
   if (c?.use) {
-    c.use("downloads").then(d => { downloads = d; $("btnPdf").hidden = !d; });
+    c.use("downloads").then(d => { downloads = d; $("btnPdf").hidden = $("btnWord").hidden = !d; });
     db = await c.use("db");
   }
   if (!db) { renderList(); refresh(); return; }
