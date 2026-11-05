@@ -102,6 +102,41 @@ table.cost td:last-child { text-align: right; font-weight: 700; white-space: now
 .confirm { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 18px; background: var(--danger-bg); color: var(--danger); font-weight: 600 }
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--fg); max-width: min(560px, calc(100vw - 32px)); width: 100% }
 dialog::backdrop { background: rgb(10 12 40 / .45) }
+.tabs { display: flex; gap: 6px; padding-block: 12px 0; border-bottom: 1px solid var(--line) }
+.tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 8px 12px }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent) }
+.s-brouillon { background: var(--alt); color: var(--muted) }
+.s-devis { background: var(--info-bg); color: var(--info) }
+.s-paye { background: var(--ok-bg); color: var(--ok) }
+.s-suspens { background: var(--warn-bg); color: var(--warn) }
+.s-perdu { background: var(--danger-bg); color: var(--danger) }
+.s-relance { background: var(--danger-bg); color: var(--danger) }
+.pills { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end }
+.suivi-top { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center }
+.suivi-top .pill { font-size: 12.5px; padding: 3px 10px }
+.subform { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg) }
+.hist { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--muted) }
+.hist b { color: var(--fg) }
+.dash { max-width: 1280px; margin: 0 auto; padding-block: 18px 40px; display: grid; gap: 18px }
+.dash-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end }
+.dash-filters label { min-width: 170px }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 2px }
+.kpi span { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700 }
+.kpi b { font-family: var(--f-display); font-size: 24px; font-variant-numeric: tabular-nums }
+.kpi small { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums }
+.kpi.alert-k { border-color: var(--warn); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0; align-content: start }
+.panel h2 { color: var(--accent) }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px }
+.tscroll { overflow-x: auto }
+table.data { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px }
+table.data th { text-align: left; font-size: 11.5px; color: var(--muted); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap }
+table.data td { padding: 7px 8px; border-bottom: 1px solid var(--alt); white-space: nowrap }
+table.data td.r, table.data th.r { text-align: right }
+.chart { position: relative }
+.chart svg { display: block; width: 100%; height: auto }
+.chart .tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; padding: 6px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -110%) }
 .toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-weight: 600; z-index: 20 }
 @media (prefers-reduced-motion: no-preference) { .item, button { transition: background .15s, border-color .15s } }
 </style>
@@ -118,7 +153,11 @@ dialog::backdrop { background: rgb(10 12 40 / .45) }
 </header>
 <div class="wrap notice"><strong>Rappel :</strong> l'application prépare et suit les dossiers et produit les devis JyVis. La nouvelle carte grise ou le nouveau permis est délivré par l'ANTS ; aucun titre officiel n'est modifié ici. Montants officiels à revérifier sur le site de l'ANTS avant envoi.</div>
 
-<main class="wrap">
+<nav class="wrap tabs" role="tablist" aria-label="Vues">
+  <button type="button" role="tab" id="tabDos" aria-selected="true">Dossiers</button>
+  <button type="button" role="tab" id="tabDash" aria-selected="false">Tableau de bord</button>
+</nav>
+<main class="wrap" id="viewDos">
   <section aria-label="Dossiers">
     <div class="list-head"><h2>Dossiers</h2><button class="primary" id="btnNew" type="button">+ Nouveau dossier</button></div>
     <div class="filters">
@@ -138,6 +177,41 @@ dialog::backdrop { background: rgb(10 12 40 / .45) }
         <button id="btnDup" type="button">Dupliquer</button>
         <button class="danger" id="btnDel" type="button">Supprimer</button>
       </div>
+    </div>
+    <div class="sec" id="secSuivi">
+      <h2>Suivi commercial</h2>
+      <div class="suivi-top"><span class="pill" id="etatPill"></span><span class="progress" id="etatInfo"></span></div>
+      <div class="grid">
+        <label class="f">Commercial<input id="commercial" type="text" list="commerciaux" autocomplete="off"></label>
+        <div class="f" style="display:grid;gap:4px"><span style="font-size:12px;color:var(--muted);font-weight:600">Montant à encaisser</span><b id="montantDu" style="font-family:var(--f-display);font-size:20px"></b></div>
+      </div>
+      <datalist id="commerciaux"></datalist>
+      <div class="actions">
+        <button type="button" id="bDevis">Devis réalisé</button>
+        <button type="button" class="primary" id="bPaye">Client a payé</button>
+        <button type="button" id="bSuspens">Non payé : en suspens</button>
+        <button type="button" id="bRelance">Relancer le prospect</button>
+        <button type="button" id="bPerdu">Perdu</button>
+      </div>
+      <div class="subform" id="payForm" hidden>
+        <div class="grid">
+          <label class="f">Montant encaissé (€)<input id="payMontant" type="number" min="0" step="0.01"></label>
+          <label class="f">Mode de paiement<select id="payMode"><option>Carte bancaire</option><option>Virement</option><option>Prélèvement</option><option>Chèque</option><option>Espèces</option></select></label>
+          <label class="f">Date du paiement<input id="payDate" type="date"></label>
+        </div>
+        <div class="actions"><button type="button" class="primary" id="payOk">Enregistrer le paiement</button><button type="button" id="payNo">Annuler</button></div>
+      </div>
+      <div class="subform" id="relForm" hidden>
+        <div class="grid">
+          <label class="f">Canal<select id="relCanal"><option>Téléphone</option><option>E-mail</option><option>SMS</option><option>WhatsApp</option></select></label>
+          <label class="f">Prochaine relance<input id="relNext" type="date"></label>
+        </div>
+        <label class="f">Message au client<textarea id="relMsg" style="min-height:120px"></textarea></label>
+        <div class="actions"><button type="button" id="relIA" hidden>Rédiger avec Claude</button><button type="button" id="relCopy">Copier le message</button></div>
+        <label class="f">Note interne (réponse du client…)<input id="relNote" type="text"></label>
+        <div class="actions"><button type="button" class="primary" id="relOk">Enregistrer la relance</button><button type="button" id="relNo">Annuler</button></div>
+      </div>
+      <ol class="hist" id="relHist"></ol>
     </div>
     <div class="confirm" id="confirmDel" hidden>Supprimer définitivement ce dossier ?
       <button class="danger" id="btnDelYes" type="button">Oui, supprimer</button><button id="btnDelNo" type="button">Annuler</button></div>
@@ -261,6 +335,23 @@ dialog::backdrop { background: rgb(10 12 40 / .45) }
   </section>
 </main>
 
+<section class="wrap dash" id="viewDash" hidden aria-label="Tableau de bord">
+  <div class="dash-filters">
+    <label class="f">Période<select id="dPeriode"><option value="mois">Ce mois-ci</option><option value="3m">3 derniers mois</option><option value="annee" selected>Cette année</option><option value="tout">Tout</option></select></label>
+    <label class="f">Commercial<select id="dCom"><option value="">Tous les commerciaux</option></select></label>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="panels">
+    <div class="panel"><h2>Encaissé par mois</h2><div class="chart" id="chart"></div>
+      <details><summary class="progress">Voir les chiffres</summary><div class="tscroll"><table class="data" id="tMois"></table></div></details></div>
+    <div class="panel"><h2>Prospects à relancer</h2><div class="tscroll"><table class="data" id="tRelance"></table></div></div>
+  </div>
+  <div class="panels">
+    <div class="panel"><h2>Par commercial</h2><div class="tscroll"><table class="data" id="tCom"></table></div></div>
+    <div class="panel"><h2>Par produit</h2><div class="tscroll"><table class="data" id="tProd"></table></div></div>
+  </div>
+</section>
+
 <dialog id="dlgAgence">
   <form method="dialog" id="formAgence" style="display:grid;gap:12px">
     <h2>Coordonnées agence (en-tête des devis)</h2>
@@ -326,6 +417,11 @@ const frDate = s => s ? s.split("-").reverse().join("/") : "—";
 const num = v => { const n = parseFloat(String(v).replace(",", ".")); return isFinite(n) ? n : 0; };
 const clone = o => JSON.parse(JSON.stringify(o || {}));
 
+const ETATS = { brouillon: "Brouillon", devis: "Devis réalisé", suspens: "En suspens", paye: "Payé", perdu: "Perdu" };
+const addDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const etatOf = d => d.suivi?.etat || "brouillon";
+const aRelancer = d => etatOf(d) === "suspens" && (!d.suivi?.prochaine_relance || d.suivi.prochaine_relance <= today());
+let sample = null, view = "dos";
 let db = null, docs = [], currentId = null, cur = null, dirty = false, filter = "tous", agence = { ...AGENCE_DEF };
 
 function blank(fam = "cg") {
@@ -336,6 +432,7 @@ function blank(fam = "cg") {
     permis: { numero: "", categories: "", date_delivrance: "", delivre_par: "", date_naissance: "" },
     assurance: { formule: "Tous risques", cotisation: 0, frais_dossier: 0, mois_premier: 2, garanties: GAR[dem] || GAR.as_auto,
       conducteur: { nom: "", date_naissance: "", date_permis: "", crm: "1,00" }, entreprise: { raison: "", siret: "", activite: "", ca: "", effectif: "", date_creation: "" } },
+    commercial: "", suivi: { etat: "brouillon", devis_le: "", paye_le: "", montant_paye: 0, mode: "", prochaine_relance: "", relances: [] },
     taux_regional_cv: 54.95, malus_y6: 0, frais_service: fam === "cg" ? 29.9 : fam === "pc" ? 19.9 : 0, tva: false,
     partenaire: "L'Olivier Assurance", pieces_recues: [], notes: "" };
 }
@@ -410,6 +507,7 @@ const BIND = [
   ["as_c_nom", "assurance.conducteur.nom"], ["as_c_naiss", "assurance.conducteur.date_naissance"], ["as_c_permis", "assurance.conducteur.date_permis"], ["as_c_crm", "assurance.conducteur.crm"],
   ["as_e_raison", "assurance.entreprise.raison"], ["as_e_siret", "assurance.entreprise.siret"], ["as_e_act", "assurance.entreprise.activite"], ["as_e_ca", "assurance.entreprise.ca"],
   ["as_e_eff", "assurance.entreprise.effectif"], ["as_e_date", "assurance.entreprise.date_creation"],
+  ["commercial", "commercial"],
   ["taux", "taux_regional_cv"], ["malus", "malus_y6"], ["frais", "frais_service"], ["partenaire", "partenaire"], ["tva", "tva"], ["notes", "notes"],
 ];
 const getP = (o, p) => p.split(".").reduce((a, k) => a?.[k], o);
@@ -464,6 +562,7 @@ function refresh() {
   const A = alertes(cur);
   if (!A.length) { const d = document.createElement("div"); d.className = "alert"; d.style.background = "var(--ok-bg)"; d.style.color = "var(--ok)"; d.textContent = "Aucun point bloquant détecté."; al.append(d); }
   A.forEach(t => { const d = document.createElement("div"); d.className = "alert"; d.textContent = t; al.append(d); });
+  renderSuivi();
   $("btnDel").disabled = $("btnDup").disabled = !currentId;
   $("statusLine").textContent = !db ? "Mode hors ligne : les dossiers ne sont pas enregistrés en ligne dans cette vue." : dirty ? "Modifications non enregistrées." : currentId ? "Enregistré." : "Nouveau dossier, pas encore enregistré.";
 }
@@ -497,14 +596,14 @@ $("famCg").onclick = () => setFam("cg"); $("famPc").onclick = () => setFam("pc")
 /* ---------- liste ---------- */
 function renderChips() {
   const c = $("chips"); c.textContent = "";
-  for (const [k, v] of [["tous", "Tous"], ...Object.entries(STATUTS)]) {
+  for (const [k, v] of [["tous", "Tous"], ["relancer", "À relancer"], ["devis", "Devis réalisés"], ["suspens", "En suspens"], ["paye", "Payés"], ["perdu", "Perdus"]]) {
     const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.textContent = v; b.setAttribute("aria-pressed", filter === k);
     b.onclick = () => { filter = k; renderChips(); renderList(); }; c.append(b);
   }
 }
 function renderList() {
   const q = $("search").value.trim().toLowerCase(), list = $("list"); list.textContent = "";
-  const items = docs.filter(x => (filter === "tous" || x.data.statut === filter) &&
+  const items = docs.filter(x => (filter === "tous" || (filter === "relancer" ? aRelancer(x.data) : etatOf(x.data) === filter)) &&
     (!q || [x.data.client?.nom, x.data.vehicule?.immatriculation, x.data.numero, x.data.permis?.numero].join(" ").toLowerCase().includes(q)));
   if (!items.length) {
     const e = document.createElement("div"); e.className = "empty";
@@ -517,9 +616,11 @@ function renderList() {
     const top = document.createElement("div"); top.className = "top";
     const n = document.createElement("span"); n.className = "name"; n.textContent = d.client?.nom || "Sans nom";
     const p = document.createElement("span"); p.className = "pill s-" + (d.statut || "attente"); p.textContent = STATUTS[d.statut] || STATUTS.attente;
-    top.append(n, p);
+    const e = etatOf(d), pe = document.createElement("span"); pe.className = "pill s-" + (aRelancer(d) ? "relance" : e); pe.textContent = aRelancer(d) ? "À relancer" : ETATS[e];
+    const pills = document.createElement("span"); pills.className = "pills"; pills.append(pe, p);
+    top.append(n, pills);
     const s = document.createElement("div"); s.className = "sub";
-    s.textContent = (CAT[d.demarche]?.[0] || "") + (d.famille === "cg" && d.vehicule?.immatriculation ? " · " + d.vehicule.immatriculation : "");
+    s.textContent = (CAT[d.demarche]?.[0] || "") + (d.vehicule?.immatriculation && d.famille !== "pc" ? " · " + d.vehicule.immatriculation : "") + " · " + eur(calcul(d).total) + (d.commercial ? " · " + d.commercial : "");
     const m = document.createElement("div"); m.className = "num"; m.textContent = d.numero || "";
     b.append(top, s, m); b.onclick = () => open(x.id); list.append(b);
   }
@@ -536,7 +637,7 @@ $("btnNew").onclick = () => { currentId = null; cur = blank("cg"); dirty = false
 
 /* ---------- enregistrement ---------- */
 function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 2600); }
-async function save() {
+async function save(msg = "Dossier enregistré") {
   if (!db) { toast("Enregistrement indisponible dans cette vue"); return false; }
   if (!cur.numero) cur.numero = nextNumero(cur);
   const body = clone(cur); body.updatedAt = Date.now();
@@ -544,12 +645,12 @@ async function save() {
   try {
     if (currentId) await db.collection("dossiers").doc(currentId).set(body);
     else { const ref = await db.collection("dossiers").add(body); currentId = ref.id; }
-    dirty = false; toast("Dossier enregistré"); refresh(); return true;
+    dirty = false; toast(msg); refresh(); return true;
   } catch (e) { toast(e?.code === "permission_denied" ? "Vous n'avez pas le droit de modifier ces dossiers" : "Enregistrement impossible, réessayez"); return false; }
   finally { $("btnSave").disabled = false; }
 }
-$("btnSave").onclick = save;
-$("btnDup").onclick = () => { const c = clone(cur); c.numero = ""; c.statut = "attente"; c.pieces_recues = []; c.date = today(); currentId = null; cur = c; dirty = true; loadForm(); renderList(); toast("Copie créée, pensez à l'enregistrer"); };
+$("btnSave").onclick = () => save();
+$("btnDup").onclick = () => { const c = clone(cur); c.numero = ""; c.statut = "attente"; c.pieces_recues = []; c.date = today(); c.suivi = blank().suivi; currentId = null; cur = c; dirty = true; loadForm(); renderList(); toast("Copie créée, pensez à l'enregistrer"); };
 $("btnDel").onclick = () => { $("confirmDel").hidden = false; };
 $("btnDelNo").onclick = () => { $("confirmDel").hidden = true; };
 $("btnDelYes").onclick = async () => {
@@ -753,6 +854,7 @@ function buildDocx(d) {
 
 let downloads = null;
 async function ensureNumero() {
+  if (etatOf(cur) === "brouillon") { cur.suivi = { ...blank().suivi, ...cur.suivi, etat: "devis", devis_le: today() }; dirty = true; if (!db) refresh(); }
   if (!cur.numero) { if (db) { if (!(await save())) return false; } else cur.numero = nextNumero(cur); }
   else if (dirty && db) await save();
   return true;
@@ -773,12 +875,151 @@ $("btnPdf").onclick = async () => {
   try { await downloads.save({ filename: name, data: pdf.output("blob") }); } catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") toast("Téléchargement impossible"); }
 };
 
+/* ---------- suivi commercial ---------- */
+function renderSuivi() {
+  const sv = cur.suivi ||= blank().suivi, e = sv.etat || "brouillon", k = calcul(cur), rel = cur.suivi.relances || [];
+  const due = aRelancer(cur);
+  $("etatPill").className = "pill s-" + (due ? "relance" : e); $("etatPill").textContent = due ? "À relancer" : ETATS[e];
+  $("etatInfo").textContent = e === "paye" ? `Payé le ${frDate(sv.paye_le)} : ${eur(num(sv.montant_paye))} (${sv.mode || "—"})`
+    : e === "suspens" ? `Devis du ${frDate(sv.devis_le)} non payé · ${rel.length} relance(s) · prochaine relance le ${frDate(sv.prochaine_relance)}`
+    : e === "devis" ? `Devis réalisé le ${frDate(sv.devis_le)}, en attente du paiement` : e === "perdu" ? "Prospect perdu" : "Le devis n'est pas encore réalisé";
+  $("montantDu").textContent = eur(k.total);
+  $("bDevis").disabled = e !== "brouillon"; $("bPaye").disabled = e === "paye";
+  $("bSuspens").disabled = e === "paye" || e === "suspens" || e === "perdu"; $("bRelance").disabled = e === "paye" || e === "perdu"; $("bPerdu").disabled = e === "perdu" || e === "paye";
+  const h = $("relHist"); h.textContent = "";
+  rel.slice().reverse().forEach(r => { const li = document.createElement("li"); const b = document.createElement("b"); b.textContent = `${frDate(r.date)} · ${r.canal}`; li.append(b, document.createTextNode(r.note ? " : " + r.note : "")); h.append(li); });
+  const names = [...new Set(docs.map(x => x.data.commercial).filter(Boolean))].sort();
+  const dl = $("commerciaux"); dl.textContent = ""; names.forEach(n => dl.append(new Option(n)));
+}
+async function setSuivi(patch, msg) {
+  cur.suivi = { ...blank().suivi, ...cur.suivi, ...patch }; dirty = true;
+  if (db) await save(msg); else { refresh(); toast(msg + " (non enregistré dans cette vue)"); }
+}
+$("bDevis").onclick = () => setSuivi({ etat: "devis", devis_le: today() }, "Devis réalisé enregistré");
+$("bPaye").onclick = () => { $("relForm").hidden = true; $("payForm").hidden = false; $("payMontant").value = calcul(cur).total; $("payDate").value = today(); $("payMontant").focus(); };
+$("payNo").onclick = () => { $("payForm").hidden = true; };
+$("payOk").onclick = async () => { $("payForm").hidden = true;
+  await setSuivi({ etat: "paye", paye_le: $("payDate").value || today(), montant_paye: num($("payMontant").value), mode: $("payMode").value, prochaine_relance: "", devis_le: cur.suivi?.devis_le || today() }, "Paiement enregistré"); };
+$("bSuspens").onclick = () => setSuivi({ etat: "suspens", devis_le: cur.suivi?.devis_le || today(), prochaine_relance: cur.suivi?.prochaine_relance || addDays(3) }, "Dossier mis en suspens, relance prévue");
+$("bPerdu").onclick = () => setSuivi({ etat: "perdu", prochaine_relance: "" }, "Prospect marqué perdu");
+function msgModele() {
+  const c = cur.client || {}, k = calcul(cur), lib = CAT[cur.demarche][0], n = (cur.suivi?.relances || []).length;
+  return `Bonjour ${c.nom || ""},\n\nNous revenons vers vous au sujet de votre devis JyVis Assurances n° ${cur.numero || "—"} (${lib}) du ${frDate(cur.suivi?.devis_le || cur.date)}, d'un montant de ${eur(k.total)} à régler à la signature.\n\n${n ? "Sauf erreur de notre part, nous n'avons pas encore reçu votre règlement. " : ""}Avez-vous des questions ? Nous pouvons finaliser votre dossier dès réception du paiement.\n\nBien cordialement,\nJyVis Assurances\n${agence.tel} · ${agence.mail}`;
+}
+$("bRelance").onclick = () => { $("payForm").hidden = true; $("relForm").hidden = false; $("relNext").value = addDays(3); $("relNote").value = ""; $("relMsg").value = msgModele(); };
+$("relNo").onclick = () => { $("relForm").hidden = true; };
+$("relCopy").onclick = async () => { try { await navigator.clipboard.writeText($("relMsg").value); toast("Message copié"); } catch { $("relMsg").select(); toast("Sélectionné : copiez avec Ctrl+C"); } };
+let relAbort = null;
+$("relIA").onclick = async () => {
+  if (!sample) return; relAbort?.abort(); relAbort = new AbortController(); const btn = $("relIA"); btn.disabled = true; btn.textContent = "Claude rédige…";
+  const c = cur.client || {}, k = calcul(cur), rel = cur.suivi?.relances || [];
+  const consigne = `Tu es l'assistant commercial de JyVis Assurances, courtier en assurances. Rédige en français un message de relance ${$("relCanal").value === "SMS" || $("relCanal").value === "WhatsApp" ? "court (moins de 320 caractères) pour " + $("relCanal").value : $("relCanal").value === "Téléphone" ? "sous forme de script d'appel téléphonique bref" : "par e-mail, avec une ligne d'objet"} pour un prospect qui n'a pas encore payé son devis. Ton : courtois, professionnel, rassurant, sans pression excessive. N'invente aucun chiffre, aucune promotion ni aucune information absente des données. Termine par la signature JyVis Assurances avec le téléphone et l'e-mail. Réponds uniquement par le message.
+
+Données :
+- Client : ${c.nom || "—"}
+- Devis n° ${cur.numero || "—"} du ${frDate(cur.suivi?.devis_le || cur.date)} : ${CAT[cur.demarche][0]}
+- Montant à régler à la signature : ${eur(k.total)}${k.assu ? ` (cotisation annuelle ${eur(k.annuel)}, mensualité ${eur(k.mens)})` : ""}
+- Nombre de relances déjà faites : ${rel.length}${rel.length ? " ; dernière note : " + (rel.at(-1).note || "aucune") : ""}
+- Pièces encore manquantes : ${CAT[cur.demarche][3].filter(p => !(cur.pieces_recues || []).includes(p)).join(", ") || "aucune"}
+- Téléphone agence : ${agence.tel} ; e-mail : ${agence.mail}`;
+  try { const r = await sample(consigne, { signal: relAbort.signal, modelTier: "quick", cache: false, onText: ({ text }) => { $("relMsg").value = text; } }); $("relMsg").value = r.text; }
+  catch (e) { if (e?.code === "not_granted") { $("relIA").hidden = true; toast("Assistant Claude non autorisé pour cette page"); } else if (e?.name !== "AbortError") toast(e?.code === "rate_limited" ? "Trop de demandes, réessayez dans un instant" : "Rédaction impossible, le modèle de message reste disponible"); }
+  finally { btn.disabled = false; btn.textContent = "Rédiger avec Claude"; }
+};
+$("relOk").onclick = async () => {
+  const r = { date: today(), canal: $("relCanal").value, note: $("relNote").value.trim(), message: $("relMsg").value };
+  $("relForm").hidden = true;
+  await setSuivi({ etat: "suspens", devis_le: cur.suivi?.devis_le || today(), relances: [...(cur.suivi?.relances || []), r], prochaine_relance: $("relNext").value || addDays(3) }, "Relance enregistrée");
+};
+
+/* ---------- tableau de bord ---------- */
+function showView(v) {
+  view = v; $("viewDos").hidden = v !== "dos"; $("viewDash").hidden = v !== "dash";
+  $("tabDos").setAttribute("aria-selected", v === "dos"); $("tabDash").setAttribute("aria-selected", v === "dash");
+  if (v === "dash") renderDash();
+}
+$("tabDos").onclick = () => showView("dos"); $("tabDash").onclick = () => showView("dash");
+$("dPeriode").onchange = renderDash; $("dCom").onchange = renderDash;
+function inPeriode(dt, per) {
+  if (!dt) return false; if (per === "tout") return true;
+  const t = today(); if (per === "mois") return dt.slice(0, 7) === t.slice(0, 7); if (per === "annee") return dt.slice(0, 4) === t.slice(0, 4);
+  const d = new Date(); d.setMonth(d.getMonth() - 2); d.setDate(1); return dt >= d.toISOString().slice(0, 10);
+}
+function table(el, head, rows, rightFrom = 1) {
+  el.textContent = ""; const th = el.createTHead().insertRow();
+  head.forEach((h, i) => { const c = document.createElement("th"); c.textContent = h; if (i >= rightFrom) c.className = "r"; th.append(c); });
+  const tb = el.createTBody();
+  if (!rows.length) { const c = tb.insertRow().insertCell(); c.colSpan = head.length; c.textContent = "Aucune donnée pour cette période."; c.style.color = "var(--muted)"; return tb; }
+  rows.forEach(r => { const tr = tb.insertRow(); r.forEach((v, i) => { const c = tr.insertCell(); if (v instanceof Node) c.append(v); else c.textContent = v; if (i >= rightFrom) c.className = "r"; }); });
+  return tb;
+}
+function renderDash() {
+  if (view !== "dash") return;
+  const per = $("dPeriode").value, com = $("dCom").value;
+  const coms = [...new Set(docs.map(x => x.data.commercial).filter(Boolean))].sort();
+  const sel = $("dCom"); const keep = sel.value; sel.length = 1; coms.forEach(n => sel.add(new Option(n, n))); sel.value = coms.includes(keep) ? keep : "";
+  const all = docs.map(x => ({ id: x.id, d: x.data, e: etatOf(x.data), m: calcul(x.data).total })).filter(x => !com || x.d.commercial === com);
+  const devis = all.filter(x => x.e !== "brouillon" && inPeriode(x.d.suivi?.devis_le || x.d.date, per));
+  const payes = all.filter(x => x.e === "paye" && inPeriode(x.d.suivi?.paye_le, per));
+  const susp = all.filter(x => x.e === "suspens"), due = all.filter(x => aRelancer(x.d)), attente = all.filter(x => x.e === "devis");
+  const sum = a => a.reduce((s, x) => s + x.m, 0), enc = payes.reduce((s, x) => s + num(x.d.suivi?.montant_paye), 0);
+  const conv = devis.length ? Math.round(devis.filter(x => x.e === "paye").length / devis.length * 100) : 0;
+  const K = $("kpis"); K.textContent = "";
+  [["Devis réalisés", devis.length, eur(sum(devis)) + " devisés"], ["Encaissé", eur(enc), payes.length + " paiement(s)"],
+   ["En attente de paiement", eur(sum(attente)), attente.length + " devis"], ["En suspens", eur(sum(susp)), susp.length + " prospect(s)"],
+   ["Taux de transformation", conv + " %", "devis payés / devis réalisés"], ["À relancer aujourd'hui", due.length, due.length ? "voir la liste" : "rien en retard", due.length > 0]]
+  .forEach(([l, v, sub, warn]) => { const d = document.createElement("div"); d.className = "kpi" + (warn ? " alert-k" : "");
+    const a = document.createElement("span"), b = document.createElement("b"), c = document.createElement("small"); a.textContent = l; b.textContent = v; c.textContent = sub; d.append(a, b, c); K.append(d); });
+  // encaissé par mois : 12 derniers mois
+  const months = []; const d0 = new Date(); d0.setDate(1);
+  for (let i = 11; i >= 0; i--) { const d = new Date(d0); d.setMonth(d0.getMonth() - i); months.push(d.toISOString().slice(0, 7)); }
+  const byM = months.map(m => [m, all.filter(x => x.e === "paye" && (x.d.suivi?.paye_le || "").startsWith(m)).reduce((s, x) => s + num(x.d.suivi?.montant_paye), 0)]);
+  drawChart(byM);
+  table($("tMois"), ["Mois", "Encaissé"], byM.map(([m, v]) => [moisLib(m), eur(v)]));
+  // relances
+  const rows = due.sort((a, b) => (a.d.suivi?.prochaine_relance || "").localeCompare(b.d.suivi?.prochaine_relance || "")).map(x => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "Ouvrir"; b.onclick = () => { showView("dos"); open(x.id); };
+    return [x.d.client?.nom || "Sans nom", x.d.commercial || "—", (x.d.suivi?.relances || []).length, frDate(x.d.suivi?.prochaine_relance), eur(x.m), b]; });
+  table($("tRelance"), ["Client", "Commercial", "Relances", "Prévue le", "Montant", ""], rows, 2);
+  // par commercial
+  const group = key => { const g = new Map(); for (const x of all) { const k = key(x); if (!g.has(k)) g.set(k, []); g.get(k).push(x); } return [...g]; };
+  const line = (name, xs) => { const dv = xs.filter(x => x.e !== "brouillon" && inPeriode(x.d.suivi?.devis_le || x.d.date, per)), py = xs.filter(x => x.e === "paye" && inPeriode(x.d.suivi?.paye_le, per));
+    return [name, dv.length, py.length, eur(py.reduce((s, x) => s + num(x.d.suivi?.montant_paye), 0)), eur(sum(xs.filter(x => x.e === "suspens"))), (dv.length ? Math.round(dv.filter(x => x.e === "paye").length / dv.length * 100) : 0) + " %"]; };
+  table($("tCom"), ["Commercial", "Devis", "Payés", "Encaissé", "En suspens", "Transfo."], group(x => x.d.commercial || "Non attribué").map(([n, xs]) => line(n, xs)).filter(r => r[1] || r[2] || r[4] !== eur(0)));
+  table($("tProd"), ["Produit", "Devis", "Payés", "Encaissé", "En suspens", "Transfo."], group(x => CAT[x.d.demarche]?.[0] || "—").map(([n, xs]) => line(n, xs)).filter(r => r[1] || r[2] || r[4] !== eur(0)));
+}
+const moisLib = m => new Date(m + "-01T12:00:00").toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+function drawChart(data) {
+  const el = $("chart"); el.textContent = "";
+  const W = 640, H = 240, L = 56, B = 28, T = 12, R = 8, max = Math.max(...data.map(d => d[1]));
+  const step = (() => { if (!max) return 100; const raw = max / 4, p = 10 ** Math.floor(Math.log10(raw)); return [1, 2, 2.5, 5, 10].map(m => m * p).find(s => s >= raw); })();
+  const top = Math.max(step * 4, step * Math.ceil(max / step)), y = v => T + (H - T - B) * (1 - v / top), bw = (W - L - R) / data.length;
+  const NS = "http://www.w3.org/2000/svg", mk = (n, a) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const svg = mk("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Montant encaissé par mois sur les 12 derniers mois" });
+  for (let v = 0; v <= top + 1e-9; v += step) {
+    svg.append(mk("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "var(--alt)", "stroke-width": v ? 1 : 1.5 }));
+    const t = mk("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", "font-size": 11, fill: "var(--muted)" }); t.textContent = Math.round(v).toLocaleString("fr-FR") + " €"; svg.append(t);
+  }
+  const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true;
+  data.forEach(([m, v], i) => {
+    const x = L + i * bw, h = Math.max(0, y(0) - y(v)), w = Math.min(28, bw - 6), cx = x + bw / 2;
+    if (h > 0) { const r = Math.min(4, h, w / 2);
+      svg.append(mk("path", { d: `M${cx - w / 2},${y(0)} V${y(v) + r} Q${cx - w / 2},${y(v)} ${cx - w / 2 + r},${y(v)} H${cx + w / 2 - r} Q${cx + w / 2},${y(v)} ${cx + w / 2},${y(v) + r} V${y(0)} Z`, fill: "var(--accent)" })); }
+    const t = mk("text", { x: cx, y: H - 8, "text-anchor": "middle", "font-size": 10.5, fill: "var(--muted)" }); t.textContent = moisLib(m); svg.append(t);
+    const hit = mk("rect", { x, y: T, width: bw, height: H - T - B, fill: "transparent" });
+    hit.addEventListener("pointerenter", () => { tip.hidden = false; tip.textContent = `${moisLib(m)} : ${eur(v)}`; tip.style.left = (cx / W * 100) + "%"; tip.style.top = (y(v) / H * 100) + "%"; });
+    hit.addEventListener("pointerleave", () => { tip.hidden = true; }); svg.append(hit);
+  });
+  el.append(svg, tip);
+}
+
 /* ---------- démarrage ---------- */
 cur = blank("cg"); renderChips(); loadForm();
 (async () => {
   const c = window.claude;
   if (c?.use) {
     c.use("downloads").then(d => { downloads = d; $("btnPdf").hidden = $("btnWord").hidden = !d; });
+    c.use("sample").then(sm => { sample = sm; $("relIA").hidden = !sm; });
     db = await c.use("db");
   }
   if (!db) { renderList(); refresh(); return; }
@@ -787,7 +1028,7 @@ cur = blank("cg"); renderChips(); loadForm();
   db.collection("dossiers").orderBy("updatedAt", "desc").onSnapshot(snap => {
     if (!snap.metadata.fromCache) clearTimeout(timer);
     docs = snap.docs.map(s => ({ id: s.id, data: s.data() }));
-    renderList(); refresh();
+    renderList(); refresh(); renderDash();
   }, () => { clearTimeout(timer); renderList(); });
 })();
 </script>
