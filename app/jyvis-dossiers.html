@@ -142,6 +142,8 @@ table.data td.r, table.data th.r { text-align: right }
 .due.late { background: var(--danger-bg); color: var(--danger) }
 .due.soon { background: var(--warn-bg); color: var(--warn) }
 .due.ok { background: var(--alt); color: var(--muted) }
+a.wa { display: inline-flex; align-items: center; font-weight: 600; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--ok); color: var(--ok); text-decoration: none }
+a.wa[aria-disabled="true"] { opacity: .5; pointer-events: none }
 .toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-weight: 600; z-index: 20 }
 @media (prefers-reduced-motion: no-preference) { .item, button { transition: background .15s, border-color .15s } }
 </style>
@@ -213,7 +215,8 @@ table.data td.r, table.data th.r { text-align: right }
           <label class="f">Prochaine relance<input id="relNext" type="date"></label>
         </div>
         <label class="f">Message au client<textarea id="relMsg" style="min-height:120px"></textarea></label>
-        <div class="actions"><button type="button" id="relIA" hidden>Rédiger avec Claude</button><button type="button" id="relCopy">Copier le message</button></div>
+        <div class="actions"><button type="button" id="relIA" hidden>Rédiger avec Claude</button><button type="button" id="relCopy">Copier le message</button><a id="relWa" class="wa" href="https://wa.me/" target="_blank" rel="noopener">Ouvrir dans WhatsApp</a></div>
+        <div class="progress" id="relWaInfo"></div>
         <label class="f">Note interne (réponse du client…)<input id="relNote" type="text"></label>
         <div class="actions"><button type="button" class="primary" id="relOk">Enregistrer la relance</button><button type="button" id="relNo">Annuler</button></div>
       </div>
@@ -944,8 +947,22 @@ function msgModele() {
   const c = cur.client || {}, k = calcul(cur), lib = CAT[cur.demarche][0], n = (cur.suivi?.relances || []).length;
   return `Bonjour ${c.nom || ""},\n\nNous revenons vers vous au sujet de votre devis JyVis Assurances n° ${cur.numero || "—"} (${lib}) du ${frDate(cur.suivi?.devis_le || cur.date)}, d'un montant de ${eur(k.total)} à régler à la signature.\n\n${n ? "Sauf erreur de notre part, nous n'avons pas encore reçu votre règlement. " : ""}Avez-vous des questions ? Nous pouvons finaliser votre dossier dès réception du paiement.\n\nBien cordialement,\nJyVis Assurances\n${agence.tel} · ${agence.mail}`;
 }
-$("bRelance").onclick = () => { $("payForm").hidden = true; $("relForm").hidden = false; $("relNext").value = addDays(3); $("relNote").value = ""; $("relMsg").value = msgModele(); };
+$("bRelance").onclick = () => { $("payForm").hidden = true; $("relForm").hidden = false; $("relNext").value = addDays(3); $("relNote").value = ""; $("relMsg").value = msgModele(); majWa(); };
 $("relNo").onclick = () => { $("relForm").hidden = true; };
+function waNumero(t) {
+  let n = String(t || "").replace(/[^\d+]/g, "");
+  if (n.startsWith("+")) n = n.slice(1); else if (n.startsWith("00")) n = n.slice(2); else if (/^0\d{9}$/.test(n)) n = "33" + n.slice(1);
+  return /^\d{8,15}$/.test(n) ? n : "";
+}
+function majWa() {
+  const n = waNumero(cur.client?.tel), a = $("relWa");
+  a.href = "https://wa.me/" + n + "?text=" + encodeURIComponent($("relMsg").value);
+  a.setAttribute("aria-disabled", !n);
+  $("relWaInfo").textContent = n ? `WhatsApp s'ouvre vers le +${n} avec le message prêt : relisez-le, puis appuyez sur Envoyer dans WhatsApp.` : "Ajoutez le téléphone du client (fiche Client) pour ouvrir WhatsApp.";
+}
+$("relMsg").addEventListener("input", majWa);
+$("relCanal").addEventListener("change", majWa);
+$("relWa").addEventListener("click", () => { $("relCanal").value = "WhatsApp"; });
 $("relCopy").onclick = async () => { try { await navigator.clipboard.writeText($("relMsg").value); toast("Message copié"); } catch { $("relMsg").select(); toast("Sélectionné : copiez avec Ctrl+C"); } };
 let relAbort = null;
 $("relIA").onclick = async () => {
@@ -960,7 +977,7 @@ Données :
 - Nombre de relances déjà faites : ${rel.length}${rel.length ? " ; dernière note : " + (rel.at(-1).note || "aucune") : ""}
 - Pièces encore manquantes : ${CAT[cur.demarche][3].filter(p => !(cur.pieces_recues || []).includes(p)).join(", ") || "aucune"}
 - Téléphone agence : ${agence.tel} ; e-mail : ${agence.mail}`;
-  try { const r = await sample(consigne, { signal: relAbort.signal, modelTier: "quick", cache: false, onText: ({ text }) => { $("relMsg").value = text; } }); $("relMsg").value = r.text; }
+  try { const r = await sample(consigne, { signal: relAbort.signal, modelTier: "quick", cache: false, onText: ({ text }) => { $("relMsg").value = text; } }); $("relMsg").value = r.text; majWa(); }
   catch (e) { if (e?.code === "not_granted") { $("relIA").hidden = true; toast("Assistant Claude non autorisé pour cette page"); } else if (e?.name !== "AbortError") toast(e?.code === "rate_limited" ? "Trop de demandes, réessayez dans un instant" : "Rédaction impossible, le modèle de message reste disponible"); }
   finally { btn.disabled = false; btn.textContent = "Rédiger avec Claude"; }
 };
