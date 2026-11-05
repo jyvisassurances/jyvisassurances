@@ -1,0 +1,34 @@
+{
+  "numero": "JYV-2026-1105-CG-01",
+  "date": "05/11/2026",
+  "validite": "30 jours",
+  "demarche": "cg_changement_titulaire",
+  "taux_regional_cv": 54.95,
+  "frais_service": 29.90,
+  "malus_y6": 0,
+  "agence": {
+    "adresse": "47 rue Jean Jaurès 93200 Saint-Denis",
+    "orias": "22 00 65 93",
+    "tel": "01 48 20 98 27",
+    "mail": "contact@jyvis-assurances.com"
+  },
+  "partenaire": {"nom": "L'Olivier Assurance", "couleur": "#2E7D32"},
+  "titulaire": {
+    "nom": "DUPONT Jean",
+    "adresse": "12 avenue de la République 93200 Saint-Denis",
+    "tel": "06 00 00 00 00",
+    "mail": "jean.dupont@example.com"
+  },
+  "ancien_titulaire": "MARTIN Paul",
+  "vehicule": {
+    "immatriculation": "AB-123-CD",
+    "marque": "RENAULT",
+    "modele": "CLIO V",
+    "vin": "VF1RJA00000000000",
+    "date_mec": "15/03/2020",
+    "puissance_fiscale": 5,
+    "energie": "ES (essence)",
+    "age_ans": 6,
+    "electrique": false
+  }
+}

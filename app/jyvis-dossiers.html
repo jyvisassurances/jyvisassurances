@@ -1,0 +1,793 @@
+<title>Dossiers JyVis</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout : barre agence bleu marine, puis deux colonnes — dossiers à gauche, fiche du dossier à droite (empilées sur mobile). */
+:root {
+  --navy: #141B6B; --navy-dark: #0E1452; --bg: #F3F5FA; --surface: #FFFFFF; --alt: #E9EDF6;
+  --fg: #151935; --muted: #5A607A; --line: #C9CCE8; --accent: #141B6B; --on-accent: #FFFFFF;
+  --ok: #2E7D32; --ok-bg: #E3F1E4; --warn: #9A5B00; --warn-bg: #FFF1D6; --info: #1F4FB3; --info-bg: #E2EAFB;
+  --danger: #B3261E; --danger-bg: #FBE4E2;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Public Sans", "Segoe UI", Roboto, Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0D1030; --surface: #161A42; --alt: #1D2252; --fg: #E6E8F6; --muted: #A3A8C9; --line: #2E3570;
+  --accent: #AEB6FF; --on-accent: #0E1452; --navy: #141B6B;
+  --ok: #8BD48F; --ok-bg: #1B3A22; --warn: #F2C26B; --warn-bg: #3A2E14; --info: #9DB8FF; --info-bg: #1C2B55;
+  --danger: #FF9C94; --danger-bg: #44201E; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0D1030; --surface: #161A42; --alt: #1D2252; --fg: #E6E8F6; --muted: #A3A8C9; --line: #2E3570;
+  --accent: #AEB6FF; --on-accent: #0E1452; --navy: #141B6B;
+  --ok: #8BD48F; --ok-bg: #1B3A22; --warn: #F2C26B; --warn-bg: #3A2E14; --info: #9DB8FF; --info-bg: #1C2B55;
+  --danger: #FF9C94; --danger-bg: #44201E; color-scheme: dark }
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.45 }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: #141B6B }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+header.bar { background: #141B6B; color: #fff }
+header.bar .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding-block: 14px }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0 }
+.brand b { font-family: var(--f-display); font-weight: 800; font-size: 19px; letter-spacing: .02em }
+.brand small { display: block; color: #C9CCE8; font-size: 12px; font-style: italic }
+.bar .spacer { flex: 1 }
+.bar button { background: transparent; color: #fff; border: 1px solid #4A52A0 }
+.bar button:hover { background: #0E1452 }
+.notice { font-size: 12.5px; color: var(--muted); padding-block: 10px; border-bottom: 1px solid var(--line) }
+.notice strong { color: var(--fg) }
+main.wrap { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 20px; padding-block: 18px 40px; max-width: 1280px; margin: 0 auto }
+@media (max-width: 820px) { main.wrap { grid-template-columns: minmax(0, 1fr) } }
+h2 { font-family: var(--f-display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; margin: 0; color: var(--muted) }
+button { font: inherit; font-weight: 600; border-radius: 8px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--fg) }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent) }
+button.danger { color: var(--danger); border-color: var(--danger) }
+button:disabled { opacity: .5; cursor: default }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+/* liste */
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px }
+.filters { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px }
+.chips { display: flex; flex-wrap: wrap; gap: 6px }
+.chip { padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 600 }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent) }
+#list { display: flex; flex-direction: column; gap: 6px }
+.item { text-align: left; display: grid; gap: 3px; padding: 10px 12px; border-radius: 10px; font-weight: 400; width: 100% }
+.item[aria-current="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent) }
+.item .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline }
+.item .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0 }
+.item .sub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.item .num { font-family: var(--f-mono); font-size: 11px; color: var(--muted) }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; white-space: nowrap }
+.s-attente { background: var(--warn-bg); color: var(--warn) }
+.s-complet { background: var(--info-bg); color: var(--info) }
+.s-depose { background: var(--alt); color: var(--accent) }
+.s-termine { background: var(--ok-bg); color: var(--ok) }
+.s-annule { background: var(--danger-bg); color: var(--danger) }
+.empty { border: 1px dashed var(--line); border-radius: 10px; padding: 16px; color: var(--muted); font-size: 13px }
+/* fiche */
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; min-width: 0 }
+.sheet-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--line) }
+.sheet-head h1 { font-family: var(--f-display); font-size: 22px; margin: 0; text-wrap: balance; flex: 1 1 260px; min-width: 0 }
+.sheet-head .num { font-family: var(--f-mono); font-size: 12px; color: var(--muted); display: block; font-weight: 500 }
+.actions { display: flex; flex-wrap: wrap; gap: 8px }
+.sec { padding: 14px 18px; border-bottom: 1px solid var(--line); display: grid; gap: 12px }
+.sec > h2 { color: var(--accent) }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 14px }
+label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; min-width: 0 }
+label.f .code { font-family: var(--f-mono); font-weight: 500; opacity: .8 }
+input, select, textarea { font: inherit; font-size: 14px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0 }
+textarea { min-height: 70px; resize: vertical }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--fg); font-weight: 500 }
+.check input { width: 18px; height: 18px; flex: none }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden }
+.seg button { border: 0; border-radius: 0; background: transparent }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent) }
+.pieces { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px }
+.progress { font-size: 12.5px; color: var(--muted) }
+.costs { display: grid; gap: 10px }
+table.cost { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums }
+table.cost td { padding: 6px 8px; border-bottom: 1px solid var(--alt) }
+table.cost td:last-child { text-align: right; font-weight: 700; white-space: nowrap }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px }
+@media (max-width: 520px) { .cards { grid-template-columns: minmax(0, 1fr) } }
+.card { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; text-align: center }
+.card.full { background: #141B6B; border-color: #141B6B; color: #fff }
+.card span { display: block; font-size: 11px; letter-spacing: .06em; font-weight: 700; opacity: .8 }
+.card b { font-family: var(--f-display); font-size: 21px; font-variant-numeric: tabular-nums }
+.alerts { display: grid; gap: 6px }
+.alert { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn) }
+.status-line { font-size: 12.5px; color: var(--muted); padding: 10px 18px }
+.confirm { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 18px; background: var(--danger-bg); color: var(--danger); font-weight: 600 }
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--fg); max-width: min(560px, calc(100vw - 32px)); width: 100% }
+dialog::backdrop { background: rgb(10 12 40 / .45) }
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-weight: 600; z-index: 20 }
+@media (prefers-reduced-motion: no-preference) { .item, button { transition: background .15s, border-color .15s } }
+</style>
+
+<header class="bar">
+  <div class="wrap">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="-12 -12 24 24" aria-hidden="true"><polygon points="0,-10 8.66,-5 8.66,5 0,10 -8.66,5 -8.66,-5" fill="none" stroke="#fff" stroke-width="1.6"/><g fill="#fff"><circle cx="2" cy="2" r="2"/><circle cx="-2" cy="2" r="2"/><circle cx="2" cy="-2" r="2"/><circle cx="-2" cy="-2" r="2"/></g><g stroke="#141B6B" stroke-width=".9"><line x1="-4.2" y1="-4.2" x2="4.2" y2="4.2"/><line x1="-4.2" y1="4.2" x2="4.2" y2="-4.2"/></g></svg>
+      <div><b>JYVIS ASSURANCES</b><small>Dossiers carte grise &amp; permis</small></div>
+    </div>
+    <span class="spacer"></span>
+    <button id="btnAgence" type="button">Coordonnées agence</button>
+  </div>
+</header>
+<div class="wrap notice"><strong>Rappel :</strong> l'application prépare et suit les dossiers et produit les devis JyVis. La nouvelle carte grise ou le nouveau permis est délivré par l'ANTS ; aucun titre officiel n'est modifié ici. Montants officiels à revérifier sur le site de l'ANTS avant envoi.</div>
+
+<main class="wrap">
+  <section aria-label="Dossiers">
+    <div class="list-head"><h2>Dossiers</h2><button class="primary" id="btnNew" type="button">+ Nouveau dossier</button></div>
+    <div class="filters">
+      <input id="search" type="search" placeholder="Rechercher un client, une immatriculation…" aria-label="Rechercher">
+      <div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div>
+    </div>
+    <div id="list"><div class="empty" id="listEmpty">Chargement des dossiers…</div></div>
+  </section>
+
+  <section class="sheet" id="sheet" aria-label="Fiche du dossier">
+    <div class="sheet-head">
+      <h1><span class="num" id="hNum">—</span><span id="hTitle">Nouveau dossier</span></h1>
+      <div class="actions">
+        <button class="primary" id="btnSave" type="button">Enregistrer</button>
+        <button id="btnPdf" type="button">Devis PDF</button>
+        <button id="btnWord" type="button">Devis Word</button>
+        <button id="btnDup" type="button">Dupliquer</button>
+        <button class="danger" id="btnDel" type="button">Supprimer</button>
+      </div>
+    </div>
+    <div class="confirm" id="confirmDel" hidden>Supprimer définitivement ce dossier ?
+      <button class="danger" id="btnDelYes" type="button">Oui, supprimer</button><button id="btnDelNo" type="button">Annuler</button></div>
+
+    <div class="sec">
+      <h2>Démarche</h2>
+      <div class="grid">
+        <div class="f" style="display:grid;gap:4px"><span style="font-size:12px;color:var(--muted);font-weight:600">Type de dossier</span>
+          <div class="seg" role="group" aria-label="Type de dossier"><button type="button" id="famCg" aria-pressed="true">Carte grise</button><button type="button" id="famPc" aria-pressed="false">Permis</button><button type="button" id="famAs" aria-pressed="false">Assurance</button></div></div>
+        <label class="f">Démarche<select id="demarche"></select></label>
+        <label class="f">Statut<select id="statut"></select></label>
+        <label class="f">Date du devis<input id="date" type="date"></label>
+        <label class="f">Validité<input id="validite" type="text"></label>
+        <label class="f">Partenaire<input id="partenaire" type="text"></label>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2 id="hClient">Client</h2>
+      <div class="grid">
+        <label class="f">Nom / Raison sociale<input id="c_nom" type="text" autocomplete="off"></label>
+        <label class="f">Adresse<input id="c_adresse" type="text" autocomplete="off"></label>
+        <label class="f">Téléphone<input id="c_tel" type="tel" autocomplete="off"></label>
+        <label class="f">E-mail<input id="c_mail" type="email" autocomplete="off"></label>
+      </div>
+    </div>
+
+    <div class="sec" id="secCond" hidden>
+      <h2>Conducteur principal</h2>
+      <div class="grid">
+        <label class="f">Nom du conducteur<input id="as_c_nom" type="text"></label>
+        <label class="f">Date de naissance<input id="as_c_naiss" type="date"></label>
+        <label class="f">Permis obtenu le<input id="as_c_permis" type="date"></label>
+        <label class="f">Bonus-malus (CRM)<input id="as_c_crm" type="text"></label>
+      </div>
+    </div>
+
+    <div class="sec" id="secEnt" hidden>
+      <h2>Entreprise</h2>
+      <div class="grid">
+        <label class="f">Raison sociale<input id="as_e_raison" type="text"></label>
+        <label class="f">SIRET<input id="as_e_siret" type="text"></label>
+        <label class="f">Activité(s) assurée(s)<input id="as_e_act" type="text"></label>
+        <label class="f">Chiffre d'affaires annuel (€)<input id="as_e_ca" type="text"></label>
+        <label class="f">Effectif<input id="as_e_eff" type="text"></label>
+        <label class="f">Date de création<input id="as_e_date" type="date"></label>
+      </div>
+    </div>
+
+    <div class="sec" id="secVeh">
+      <h2 id="hVeh">Véhicule (carte grise actuelle)</h2>
+      <div class="grid">
+        <label class="f"><span>Immatriculation <span class="code">A</span></span><input id="v_immatriculation" type="text"></label>
+        <label class="f"><span>Marque <span class="code">D.1</span></span><input id="v_marque" type="text"></label>
+        <label class="f"><span>Modèle <span class="code">D.3</span></span><input id="v_modele" type="text"></label>
+        <label class="f"><span>N° VIN <span class="code">E</span></span><input id="v_vin" type="text"></label>
+        <label class="f"><span>1re mise en circulation <span class="code">B</span></span><input id="v_date_mec" type="date"></label>
+        <label class="f"><span>Puissance fiscale <span class="code">P.6</span></span><input id="v_cv" type="number" min="0" step="1"></label>
+        <label class="f"><span>Énergie <span class="code">P.3</span></span><input id="v_energie" type="text"></label>
+        <label class="f"><span>Ancien titulaire <span class="code">C.1</span></span><input id="v_ancien" type="text"></label>
+        <label class="f">Date de cession<input id="v_cession" type="date"></label>
+        <label class="f">Date du contrôle technique<input id="v_ct" type="date"></label>
+      </div>
+      <div class="grid">
+        <label class="check"><input id="v_electrique" type="checkbox">Véhicule 100 % électrique</label>
+        <label class="check"><input id="v_nouvelle" type="checkbox">Nouvelle carte éditée (changement d'adresse)</label>
+      </div>
+    </div>
+
+    <div class="sec" id="secPermis" hidden>
+      <h2>Permis de conduire</h2>
+      <div class="grid">
+        <label class="f">N° de permis<input id="p_numero" type="text"></label>
+        <label class="f">Catégories<input id="p_categories" type="text"></label>
+        <label class="f">Date de délivrance<input id="p_date" type="date"></label>
+        <label class="f">Délivré par<input id="p_par" type="text"></label>
+        <label class="f">Date de naissance<input id="p_naissance" type="date"></label>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Pièces à fournir</h2>
+      <div class="progress" id="piecesProgress"></div>
+      <div class="pieces" id="pieces"></div>
+    </div>
+
+    <div class="sec" id="secTarif">
+      <h2>Tarif</h2>
+      <div class="grid">
+        <label class="f" id="fTaux">Taux régional (€ par CV)<input id="taux" type="number" min="0" step="0.01"></label>
+        <label class="f" id="fMalus">Malus Y.6 (€)<input id="malus" type="number" min="0" step="0.01"></label>
+        <label class="f">Frais de service JyVis HT (€)<input id="frais" type="number" min="0" step="0.01"></label>
+      </div>
+      <label class="check"><input id="tva" type="checkbox">Appliquer la TVA (20 %) sur les frais de service</label>
+      <div class="costs">
+        <table class="cost"><tbody id="costRows"></tbody></table>
+        <div class="cards"><div class="card full"><span>FRAIS OFFICIELS</span><b id="kTaxes">—</b></div><div class="card"><span>FRAIS DE SERVICE</span><b id="kFrais">—</b></div><div class="card"><span>TOTAL À RÉGLER</span><b id="kTotal">—</b></div></div>
+      </div>
+    </div>
+
+    <div class="sec" id="secAssu" hidden>
+      <h2>Contrat et cotisation</h2>
+      <div class="grid">
+        <label class="f">Formule<input id="as_formule" type="text"></label>
+        <label class="f">Cotisation annuelle TTC (€)<input id="as_cot" type="number" min="0" step="0.01"></label>
+        <label class="f">Frais de dossier (€)<input id="as_fd" type="number" min="0" step="0.01"></label>
+        <label class="f">Mois payés à la souscription<input id="as_mois" type="number" min="0" max="12" step="1"></label>
+      </div>
+      <label class="f">Garanties — une par ligne, au format « Garantie ; Détail »<textarea id="as_gar" style="min-height:130px"></textarea></label>
+      <div class="cards"><div class="card full"><span>COTISATION ANNUELLE</span><b id="aAnn">—</b></div><div class="card"><span>FRAIS DE DOSSIER</span><b id="aFd">—</b></div><div class="card"><span>TOTAL 1re ANNÉE</span><b id="aTot">—</b></div></div>
+      <div class="progress" id="aMens"></div>
+      <div class="alert" style="background:var(--alt);color:var(--fg)"><strong id="aPrem"></strong><br><span id="aPremD"></span></div>
+    </div>
+
+    <div class="sec">
+      <h2>Points à vérifier</h2>
+      <div class="alerts" id="alerts"></div>
+      <label class="f">Notes internes<textarea id="notes"></textarea></label>
+    </div>
+    <div class="status-line" id="statusLine"></div>
+  </section>
+</main>
+
+<dialog id="dlgAgence">
+  <form method="dialog" id="formAgence" style="display:grid;gap:12px">
+    <h2>Coordonnées agence (en-tête des devis)</h2>
+    <label class="f">Adresse<input id="a_adresse" type="text"></label>
+    <label class="f">ORIAS<input id="a_orias" type="text"></label>
+    <label class="f">Téléphone<input id="a_tel" type="text"></label>
+    <label class="f">E-mail<input id="a_mail" type="text"></label>
+    <div class="actions"><button class="primary" id="btnAgenceSave" type="button">Enregistrer</button><button value="cancel" type="submit">Fermer</button></div>
+  </form>
+</dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+<script>
+"use strict";
+const Y4 = 11, Y5 = 2.76, TIMBRE = 25;
+const ID = "Pièce d'identité", DOM = "Justificatif de domicile < 6 mois", MANDAT = "Mandat d'immatriculation cerfa 13757",
+  CG = "Carte grise actuelle", PERMIS = "Permis de conduire (recto-verso)", PHOTO = "e-photo d'identité (code ANTS)",
+  ASSU = "Attestation d'assurance du véhicule", CT = "Contrôle technique < 6 mois (véhicule > 4 ans)";
+const CAT = {
+  cg_changement_titulaire: ["Changement de titulaire", "cg", "Y1", [ID, DOM, PERMIS, MANDAT, "Carte grise barrée « vendu le … » et signée", "Certificat de cession cerfa 15776 + code de cession", CT, ASSU, "Demande d'immatriculation cerfa 13750"]],
+  cg_changement_adresse: ["Changement d'adresse", "cg", "ADRESSE", [ID, DOM, MANDAT, CG]],
+  cg_duplicata: ["Duplicata (perte, vol, détérioration)", "cg", "Y45", [ID, DOM, PERMIS, MANDAT, "Déclaration de perte (cerfa 13753) ou récépissé de vol", "Contrôle technique en cours de validité"]],
+  cg_etat_civil: ["Changement d'état civil (nom, mariage…)", "cg", "Y45", [ID, DOM, MANDAT, CG, "Acte d'état civil justifiant le changement"]],
+  cg_cotitulaire: ["Ajout / retrait d'un cotitulaire", "cg", "Y1", [ID + " de chaque titulaire", DOM, MANDAT, CG, "Accord écrit de chaque titulaire", CT, "Demande cerfa 13750"]],
+  cg_modification_technique: ["Modification technique du véhicule", "cg", "Y45", [ID, DOM, MANDAT, CG, "PV de réception (DREAL) ou attestation constructeur", "Contrôle technique"]],
+  cg_correction_erreur: ["Correction d'une erreur sur la carte grise", "cg", "Y5", [ID, MANDAT, CG, "Justificatif de la donnée exacte"]],
+  cg_import: ["Immatriculation d'un véhicule importé", "cg", "Y1", [ID, DOM, PERMIS, MANDAT, "Titre d'immatriculation étranger", "Facture ou certificat de cession", "Certificat de conformité (COC)", "Quitus fiscal (UE) ou 846A (hors UE)", CT, ASSU]],
+  cg_succession: ["Carte grise après succession", "cg", "Y1", [ID + " de l'héritier", DOM, MANDAT, CG, "Acte de décès", "Attestation de dévolution successorale", "Accord des cohéritiers", CT, ASSU]],
+  cg_declaration_cession: ["Déclaration de cession (vendeur)", "cg", "GRATUIT", [ID, "Certificat de cession cerfa 15776 signé par les deux parties", CG]],
+  pc_perte: ["Duplicata de permis — perte", "pc", "TIMBRE25", [ID, DOM, PHOTO, "Déclaration de perte (en ligne lors de la demande)"]],
+  pc_vol: ["Duplicata de permis — vol", "pc", "GRATUIT", [ID, DOM, PHOTO, "Récépissé de déclaration de vol"]],
+  pc_deterioration: ["Remplacement d'un permis détérioré", "pc", "GRATUIT", [ID, DOM, PHOTO, "Permis détérioré (à restituer)"]],
+  pc_renouvellement: ["Renouvellement (fin de validité du titre)", "pc", "GRATUIT", [ID, DOM, PHOTO, PERMIS]],
+  pc_etat_civil: ["Changement d'état civil sur le permis", "pc", "GRATUIT", [ID + " (nouveau nom)", DOM, PHOTO, PERMIS, "Acte d'état civil justifiant le changement"]],
+  pc_medical: ["Renouvellement après avis médical", "pc", "GRATUIT", [ID, DOM, PHOTO, PERMIS, "Avis du médecin agréé (cerfa 14880)"]],
+  pc_echange_etranger: ["Échange d'un permis étranger", "pc", "GRATUIT", [ID + " / titre de séjour", DOM, PHOTO, "Permis étranger + traduction officielle", "Attestation de droits à conduire < 3 mois"]],
+  pc_apres_suspension: ["Nouveau permis après suspension / annulation", "pc", "GRATUIT", [ID, DOM, PHOTO, "Décision de suspension / annulation", "Avis médical + tests psychotechniques si exigés"]],
+  as_auto: ["Assurance auto", "as", "ASSU", [ID, PERMIS, "Carte grise du véhicule", "Relevé d'information (5 dernières années)", DOM, "RIB pour le prélèvement"]],
+  as_moto: ["Assurance moto", "as", "ASSU", [ID, "Permis de conduire (catégorie A / A2)", "Carte grise du véhicule", "Relevé d'information (5 dernières années)", DOM, "RIB pour le prélèvement"]],
+  as_rcpro: ["Responsabilité civile professionnelle", "as", "ASSU", [ID + " du dirigeant", "Extrait Kbis < 3 mois ou avis SIRENE", "Justificatif de qualification / diplôme", "Attestation d'assurance précédente (si existante)", "RIB pour le prélèvement"]],
+  as_decennale: ["Assurance décennale", "as", "ASSU", [ID + " du dirigeant", "Extrait Kbis < 3 mois", "Diplômes ou justificatifs d'expérience", "Attestation précédente / relevé de sinistralité", "Chiffre d'affaires du dernier exercice", "RIB pour le prélèvement"]],
+};
+const PROD = { as_auto: ["AUTO", "DEVIS AUTO"], as_moto: ["MOTO", "DEVIS MOTO"], as_rcpro: ["RCPRO", "DEVIS RC PRO"], as_decennale: ["DECENNALE", "DEVIS DÉCENNALE"] };
+const isVehAssu = dem => dem === "as_auto" || dem === "as_moto";
+const GAR = {
+  as_auto: "Responsabilité civile ; Incluse\nDéfense pénale et recours ; Incluse\nBris de glace ; Franchise à préciser\nVol et incendie ; Franchise à préciser\nDommages tous accidents ; Franchise à préciser\nAssistance ; À préciser",
+  as_moto: "Responsabilité civile ; Incluse\nDéfense pénale et recours ; Incluse\nVol et incendie ; Franchise à préciser\nÉquipement du motard ; À préciser\nAssistance ; À préciser",
+  as_rcpro: "Responsabilité civile exploitation ; Plafond à préciser\nResponsabilité civile professionnelle ; Plafond à préciser\nDéfense et recours ; Incluse\nFranchise par sinistre ; À préciser",
+  as_decennale: "Responsabilité civile décennale ; Plafond à préciser\nResponsabilité civile exploitation ; Plafond à préciser\nBon fonctionnement (biennale) ; À préciser\nFranchise par sinistre ; À préciser",
+};
+const defFormule = dem => isVehAssu(dem) ? "Tous risques" : "";
+const defPart = dem => /rcpro|decennale/.test(dem) ? "Tetris" : "L'Olivier Assurance";
+const DEF_DEM = { cg: "cg_changement_titulaire", pc: "pc_perte", as: "as_auto" };
+const STATUTS = { attente: "Pièces en attente", complet: "Dossier complet", depose: "Déposé à l'ANTS", termine: "Titre reçu", annule: "Annulé" };
+const AGENCE_DEF = { adresse: "47 rue Jean Jaurès 93200 Saint-Denis", orias: "22 00 65 93", tel: "01 48 20 98 27", mail: "contact@jyvis-assurances.com" };
+
+const $ = id => document.getElementById(id);
+const eur = v => (Math.round(v * 100) / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/ | /g, " ") + " €";
+const today = () => new Date().toISOString().slice(0, 10);
+const frDate = s => s ? s.split("-").reverse().join("/") : "—";
+const num = v => { const n = parseFloat(String(v).replace(",", ".")); return isFinite(n) ? n : 0; };
+const clone = o => JSON.parse(JSON.stringify(o || {}));
+
+let db = null, docs = [], currentId = null, cur = null, dirty = false, filter = "tous", agence = { ...AGENCE_DEF };
+
+function blank(fam = "cg") {
+  const dem = DEF_DEM[fam];
+  return { famille: fam, demarche: dem, statut: "attente", date: today(), validite: "30 jours", numero: "",
+    client: { nom: "", adresse: "", tel: "", mail: "" },
+    vehicule: { immatriculation: "", marque: "", modele: "", vin: "", date_mec: "", puissance_fiscale: 0, energie: "", ancien_titulaire: "", date_cession: "", date_ct: "", electrique: false, nouvelle_carte: false },
+    permis: { numero: "", categories: "", date_delivrance: "", delivre_par: "", date_naissance: "" },
+    assurance: { formule: "Tous risques", cotisation: 0, frais_dossier: 0, mois_premier: 2, garanties: GAR[dem] || GAR.as_auto,
+      conducteur: { nom: "", date_naissance: "", date_permis: "", crm: "1,00" }, entreprise: { raison: "", siret: "", activite: "", ca: "", effectif: "", date_creation: "" } },
+    taux_regional_cv: 54.95, malus_y6: 0, frais_service: fam === "cg" ? 29.9 : fam === "pc" ? 19.9 : 0, tva: false,
+    partenaire: "L'Olivier Assurance", pieces_recues: [], notes: "" };
+}
+
+function nextNumero(x) {
+  const code = x.famille === "cg" ? "CG" : x.famille === "pc" ? "PC" : PROD[x.demarche][0];
+  const d = (x.date || today()).replace(/-/g, ""), pre = `JYV-${d.slice(0, 4)}-${d.slice(4, 8)}-${code}-`;
+  const n = docs.filter(x => (x.data.numero || "").startsWith(pre)).length + 1;
+  return pre + String(n).padStart(2, "0");
+}
+
+function ageAns(d) { if (!d) return 0; return (Date.now() - new Date(d).getTime()) / (365.25 * 864e5); }
+
+function calcul(d) {
+  const [, , regle] = CAT[d.demarche]; const L = []; const v = d.vehicule || {};
+  if (regle === "ASSU") {
+    const a = d.assurance || {}, annuel = num(a.cotisation), fd = num(a.frais_dossier), mois = Math.min(12, Math.max(0, Math.round(num(a.mois_premier))));
+    const mens = Math.round(annuel / 12 * 100) / 100, premier = Math.round((mens * mois + fd) * 100) / 100;
+    return { assu: true, annuel, fd, total1: Math.round((annuel + fd) * 100) / 100, mens, mois, premier, L: [], taxes: 0, ht: 0, tva: 0, frais: 0, total: premier };
+  }
+  if (regle === "Y1") {
+    const cv = num(v.puissance_fiscale), taux = num(d.taux_regional_cv);
+    let y1 = cv * taux, note = `${cv} CV × ${eur(taux)}`;
+    if (v.electrique) { y1 = 0; note = "véhicule électrique — exonéré"; }
+    else if (ageAns(v.date_mec) >= 10) { y1 /= 2; note += " ÷ 2 (> 10 ans)"; }
+    L.push([`Taxe régionale Y.1 (${note})`, y1], ["Taxe de gestion Y.4", Y4], ["Redevance d'acheminement Y.5", Y5]);
+    if (num(d.malus_y6)) L.push(["Malus / taxe Y.6", num(d.malus_y6)]);
+  } else if (regle === "Y45") L.push(["Taxe de gestion Y.4", Y4], ["Redevance d'acheminement Y.5", Y5]);
+  else if (regle === "Y5") L.push(["Redevance d'acheminement Y.5", Y5]);
+  else if (regle === "ADRESSE") L.push(v.nouvelle_carte ? ["Redevance d'acheminement Y.5 (nouvelle carte)", Y5] : ["Mise à jour SIV (étiquette) — gratuit", 0]);
+  else if (regle === "TIMBRE25") L.push(["Timbre fiscal (perte de permis)", TIMBRE]);
+  else L.push(["Démarche gratuite auprès de l'ANTS", 0]);
+  const taxes = Math.round(L.reduce((s, [, x]) => s + x, 0) * 100) / 100;
+  const ht = num(d.frais_service), tva = d.tva ? Math.round(ht * 20) / 100 : 0;
+  return { L, taxes, ht, tva, frais: ht + tva, total: Math.round((taxes + ht + tva) * 100) / 100 };
+}
+
+function alertes(d) {
+  const A = [], v = d.vehicule || {}, [, fam, regle, pieces] = CAT[d.demarche];
+  const manq = pieces.filter(p => !(d.pieces_recues || []).includes(p));
+  if (manq.length) A.push(`${manq.length} pièce(s) manquante(s).`);
+  if (!d.client?.nom) A.push("Nom du client à renseigner.");
+  if (fam === "as") {
+    const a = d.assurance || {};
+    if (!num(a.cotisation)) A.push("Cotisation annuelle à renseigner.");
+    if (isVehAssu(d.demarche)) {
+      if (a.conducteur?.nom && d.client?.nom && a.conducteur.nom.trim().toLowerCase() !== d.client.nom.trim().toLowerCase()) A.push("Conducteur principal différent du souscripteur : vérifier le titulaire de la carte grise.");
+      if (ageAns(v.date_mec) > 4 && v.date_ct && (Date.now() - new Date(v.date_ct)) / 864e5 > 730) A.push("Contrôle technique de plus de 2 ans : CT expiré.");
+    } else if (!a.entreprise?.siret) A.push("SIRET de l'entreprise à renseigner.");
+  }
+  if (fam === "cg") {
+    if (d.demarche === "cg_changement_titulaire") {
+      if (v.date_cession && (Date.now() - new Date(v.date_cession)) / 864e5 > 31) A.push("Cession de plus d'un mois : le délai légal est dépassé, risque d'amende.");
+      if (ageAns(v.date_mec) > 4 && v.date_ct && (Date.now() - new Date(v.date_ct)) / 864e5 > 183) A.push("Contrôle technique de plus de 6 mois pour un véhicule de plus de 4 ans.");
+      if (v.ancien_titulaire && d.client?.nom && v.ancien_titulaire.trim().toLowerCase() === d.client.nom.trim().toLowerCase()) A.push("L'ancien titulaire et le nouveau titulaire portent le même nom : vérifier la cession.");
+    }
+    if (regle === "Y1" && !num(v.puissance_fiscale) && !v.electrique) A.push("Puissance fiscale (P.6) manquante : taxe régionale à 0.");
+    if (!(d.pieces_recues || []).includes(ASSU) && pieces.includes(ASSU)) A.push("Pas d'attestation d'assurance : proposer un devis auto JyVis.");
+  }
+  return A;
+}
+
+/* ---------- formulaire ---------- */
+const BIND = [
+  ["date", "date"], ["validite", "validite"], ["statut", "statut"],
+  ["c_nom", "client.nom"], ["c_adresse", "client.adresse"], ["c_tel", "client.tel"], ["c_mail", "client.mail"],
+  ["v_immatriculation", "vehicule.immatriculation"], ["v_marque", "vehicule.marque"], ["v_modele", "vehicule.modele"], ["v_vin", "vehicule.vin"],
+  ["v_date_mec", "vehicule.date_mec"], ["v_cv", "vehicule.puissance_fiscale"], ["v_energie", "vehicule.energie"], ["v_ancien", "vehicule.ancien_titulaire"],
+  ["v_cession", "vehicule.date_cession"], ["v_ct", "vehicule.date_ct"], ["v_electrique", "vehicule.electrique"], ["v_nouvelle", "vehicule.nouvelle_carte"],
+  ["p_numero", "permis.numero"], ["p_categories", "permis.categories"], ["p_date", "permis.date_delivrance"], ["p_par", "permis.delivre_par"], ["p_naissance", "permis.date_naissance"],
+  ["as_formule", "assurance.formule"], ["as_cot", "assurance.cotisation"], ["as_fd", "assurance.frais_dossier"], ["as_mois", "assurance.mois_premier"], ["as_gar", "assurance.garanties"],
+  ["as_c_nom", "assurance.conducteur.nom"], ["as_c_naiss", "assurance.conducteur.date_naissance"], ["as_c_permis", "assurance.conducteur.date_permis"], ["as_c_crm", "assurance.conducteur.crm"],
+  ["as_e_raison", "assurance.entreprise.raison"], ["as_e_siret", "assurance.entreprise.siret"], ["as_e_act", "assurance.entreprise.activite"], ["as_e_ca", "assurance.entreprise.ca"],
+  ["as_e_eff", "assurance.entreprise.effectif"], ["as_e_date", "assurance.entreprise.date_creation"],
+  ["taux", "taux_regional_cv"], ["malus", "malus_y6"], ["frais", "frais_service"], ["partenaire", "partenaire"], ["tva", "tva"], ["notes", "notes"],
+];
+const getP = (o, p) => p.split(".").reduce((a, k) => a?.[k], o);
+const setP = (o, p, v) => { const ks = p.split("."); let a = o; ks.slice(0, -1).forEach(k => a = a[k] ??= {}); a[ks.at(-1)] = v; };
+
+function fillDemarches() {
+  const sel = $("demarche"); sel.textContent = "";
+  for (const [k, [lib, fam]] of Object.entries(CAT)) if (fam === cur.famille) { const o = new Option(lib, k); sel.add(o); }
+  sel.value = cur.demarche;
+}
+
+function loadForm() {
+  $("famCg").setAttribute("aria-pressed", cur.famille === "cg"); $("famPc").setAttribute("aria-pressed", cur.famille === "pc"); $("famAs").setAttribute("aria-pressed", cur.famille === "as");
+  fillDemarches();
+  for (const [id, p] of BIND) { const el = $(id), v = getP(cur, p); if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? ""; }
+  refresh();
+}
+
+function refresh() {
+  const [lib, fam, regle, pieces] = CAT[cur.demarche];
+  const isAs = fam === "as", vehAs = isVehAssu(cur.demarche);
+  $("secVeh").hidden = !(fam === "cg" || vehAs); $("secPermis").hidden = fam !== "pc";
+  $("secCond").hidden = !vehAs; $("secEnt").hidden = !isAs || vehAs; $("secAssu").hidden = !isAs; $("secTarif").hidden = isAs;
+  $("hClient").textContent = isAs ? "Souscripteur" : "Client"; $("hVeh").textContent = isAs ? "Véhicule assuré" : "Véhicule (carte grise actuelle)";
+  for (const id of ["v_ancien", "v_cession"]) $(id).closest("label").hidden = isAs;
+  $("fTaux").hidden = $("fMalus").hidden = regle !== "Y1";
+  $("v_nouvelle").closest("label").hidden = regle !== "ADRESSE";
+  if (isAs) { const k = calcul(cur);
+    $("aAnn").textContent = eur(k.annuel); $("aFd").textContent = eur(k.fd); $("aTot").textContent = eur(k.total1);
+    $("aMens").textContent = `Mensualité de base : ${eur(k.mens)} (annuel ÷ 12)`;
+    $("aPrem").textContent = `1er paiement à la souscription : ${eur(k.premier)}`;
+    $("aPremD").textContent = `${k.mois} mois × ${eur(k.mens)} + frais de dossier ${eur(k.fd)}, puis ${12 - k.mois} prélèvements mensuels de ${eur(k.mens)}.`; }
+  $("hNum").textContent = cur.numero || "Numéro attribué à l'enregistrement";
+  $("hTitle").textContent = (cur.client.nom || "Nouveau client") + " — " + lib;
+  // pièces
+  const box = $("pieces"); box.textContent = "";
+  const recues = new Set(cur.pieces_recues || []);
+  pieces.forEach((p, i) => {
+    const l = document.createElement("label"); l.className = "check";
+    const c = document.createElement("input"); c.type = "checkbox"; c.id = "piece_" + i; c.checked = recues.has(p);
+    c.addEventListener("change", () => { const s = new Set(cur.pieces_recues || []); c.checked ? s.add(p) : s.delete(p); cur.pieces_recues = [...s]; markDirty(); });
+    l.append(c, document.createTextNode(p)); box.append(l);
+  });
+  const nb = pieces.filter(p => recues.has(p)).length;
+  $("piecesProgress").textContent = `${nb} / ${pieces.length} pièces reçues`;
+  // coûts
+  const k = calcul(cur), tb = $("costRows"); tb.textContent = "";
+  const rows = [...k.L, ["Frais de service JyVis HT", k.ht]]; if (cur.tva) rows.push(["TVA 20 % sur frais de service", k.tva]);
+  for (const [a, b] of rows) { const tr = tb.insertRow(); tr.insertCell().textContent = a; tr.insertCell().textContent = eur(b); }
+  $("kTaxes").textContent = eur(k.taxes); $("kFrais").textContent = eur(k.frais); $("kTotal").textContent = eur(k.total);
+  const al = $("alerts"); al.textContent = "";
+  const A = alertes(cur);
+  if (!A.length) { const d = document.createElement("div"); d.className = "alert"; d.style.background = "var(--ok-bg)"; d.style.color = "var(--ok)"; d.textContent = "Aucun point bloquant détecté."; al.append(d); }
+  A.forEach(t => { const d = document.createElement("div"); d.className = "alert"; d.textContent = t; al.append(d); });
+  $("btnDel").disabled = $("btnDup").disabled = !currentId;
+  $("statusLine").textContent = !db ? "Mode hors ligne : les dossiers ne sont pas enregistrés en ligne dans cette vue." : dirty ? "Modifications non enregistrées." : currentId ? "Enregistré." : "Nouveau dossier, pas encore enregistré.";
+}
+
+function markDirty() { dirty = true; refresh(); }
+
+for (const [id, p] of BIND) {
+  const el = $(id);
+  el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => {
+    let v = el.type === "checkbox" ? el.checked : el.value;
+    if (el.type === "number") v = num(v);
+    setP(cur, p, v); markDirty(); if (id === "statut") renderList();
+  });
+}
+$("demarche").addEventListener("change", e => {
+  const old = cur.demarche; cur.demarche = e.target.value;
+  if (CAT[old][1] === "as") {
+    if (!cur.assurance.garanties || cur.assurance.garanties === GAR[old]) { cur.assurance.garanties = GAR[cur.demarche]; $("as_gar").value = cur.assurance.garanties; }
+    if (!cur.assurance.formule || cur.assurance.formule === defFormule(old)) { cur.assurance.formule = defFormule(cur.demarche); $("as_formule").value = cur.assurance.formule; }
+    if (!cur.partenaire || cur.partenaire === defPart(old)) { cur.partenaire = defPart(cur.demarche); $("partenaire").value = cur.partenaire; }
+  }
+  markDirty(); });
+function setFam(f) {
+  if (cur.famille === f) return; cur.famille = f; cur.demarche = DEF_DEM[f];
+  if (!currentId) cur.frais_service = f === "cg" ? 29.9 : f === "pc" ? 19.9 : 0;
+  if (f === "as") { cur.assurance.garanties ||= GAR[cur.demarche]; cur.partenaire = defPart(cur.demarche); }
+  loadForm(); markDirty(); }
+$("famCg").onclick = () => setFam("cg"); $("famPc").onclick = () => setFam("pc"); $("famAs").onclick = () => setFam("as");
+{ const s = $("statut"); for (const [k, v] of Object.entries(STATUTS)) s.add(new Option(v, k)); }
+
+/* ---------- liste ---------- */
+function renderChips() {
+  const c = $("chips"); c.textContent = "";
+  for (const [k, v] of [["tous", "Tous"], ...Object.entries(STATUTS)]) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.textContent = v; b.setAttribute("aria-pressed", filter === k);
+    b.onclick = () => { filter = k; renderChips(); renderList(); }; c.append(b);
+  }
+}
+function renderList() {
+  const q = $("search").value.trim().toLowerCase(), list = $("list"); list.textContent = "";
+  const items = docs.filter(x => (filter === "tous" || x.data.statut === filter) &&
+    (!q || [x.data.client?.nom, x.data.vehicule?.immatriculation, x.data.numero, x.data.permis?.numero].join(" ").toLowerCase().includes(q)));
+  if (!items.length) {
+    const e = document.createElement("div"); e.className = "empty";
+    e.textContent = !db ? "Les dossiers enregistrés ne sont pas disponibles dans cette vue. Vous pouvez quand même remplir un dossier et télécharger son devis."
+      : docs.length ? "Aucun dossier ne correspond à ce filtre." : "Aucun dossier pour l'instant. Cliquez sur « + Nouveau dossier » pour créer le premier.";
+    list.append(e); return;
+  }
+  for (const x of items) {
+    const d = x.data, b = document.createElement("button"); b.type = "button"; b.className = "item"; b.setAttribute("aria-current", x.id === currentId);
+    const top = document.createElement("div"); top.className = "top";
+    const n = document.createElement("span"); n.className = "name"; n.textContent = d.client?.nom || "Sans nom";
+    const p = document.createElement("span"); p.className = "pill s-" + (d.statut || "attente"); p.textContent = STATUTS[d.statut] || STATUTS.attente;
+    top.append(n, p);
+    const s = document.createElement("div"); s.className = "sub";
+    s.textContent = (CAT[d.demarche]?.[0] || "") + (d.famille === "cg" && d.vehicule?.immatriculation ? " · " + d.vehicule.immatriculation : "");
+    const m = document.createElement("div"); m.className = "num"; m.textContent = d.numero || "";
+    b.append(top, s, m); b.onclick = () => open(x.id); list.append(b);
+  }
+}
+$("search").addEventListener("input", renderList);
+
+function open(id) {
+  const x = docs.find(d => d.id === id); if (!x) return;
+  currentId = id; cur = Object.assign(blank(x.data.famille), clone(x.data)); dirty = false; $("confirmDel").hidden = true;
+  loadForm(); renderList();
+  if (matchMedia("(max-width: 820px)").matches) $("sheet").scrollIntoView({ behavior: "smooth" });
+}
+$("btnNew").onclick = () => { currentId = null; cur = blank("cg"); dirty = false; loadForm(); renderList(); $("c_nom").focus(); };
+
+/* ---------- enregistrement ---------- */
+function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 2600); }
+async function save() {
+  if (!db) { toast("Enregistrement indisponible dans cette vue"); return false; }
+  if (!cur.numero) cur.numero = nextNumero(cur);
+  const body = clone(cur); body.updatedAt = Date.now();
+  $("btnSave").disabled = true;
+  try {
+    if (currentId) await db.collection("dossiers").doc(currentId).set(body);
+    else { const ref = await db.collection("dossiers").add(body); currentId = ref.id; }
+    dirty = false; toast("Dossier enregistré"); refresh(); return true;
+  } catch (e) { toast(e?.code === "permission_denied" ? "Vous n'avez pas le droit de modifier ces dossiers" : "Enregistrement impossible, réessayez"); return false; }
+  finally { $("btnSave").disabled = false; }
+}
+$("btnSave").onclick = save;
+$("btnDup").onclick = () => { const c = clone(cur); c.numero = ""; c.statut = "attente"; c.pieces_recues = []; c.date = today(); currentId = null; cur = c; dirty = true; loadForm(); renderList(); toast("Copie créée, pensez à l'enregistrer"); };
+$("btnDel").onclick = () => { $("confirmDel").hidden = false; };
+$("btnDelNo").onclick = () => { $("confirmDel").hidden = true; };
+$("btnDelYes").onclick = async () => {
+  try { await db.collection("dossiers").doc(currentId).delete(); toast("Dossier supprimé"); $("confirmDel").hidden = true; currentId = null; cur = blank("cg"); dirty = false; loadForm(); }
+  catch { toast("Suppression impossible"); }
+};
+
+/* ---------- agence ---------- */
+$("btnAgence").onclick = () => { for (const k of ["adresse", "orias", "tel", "mail"]) $("a_" + k).value = agence[k] || ""; $("dlgAgence").showModal(); };
+$("btnAgenceSave").onclick = async () => {
+  const a = {}; for (const k of ["adresse", "orias", "tel", "mail"]) a[k] = $("a_" + k).value.trim(); agence = a;
+  if (db) { try { await db.doc("config/agence").set(a); toast("Coordonnées enregistrées"); } catch { toast("Enregistrement impossible"); } }
+  $("dlgAgence").close();
+};
+
+/* ---------- PDF à la charte JyVis ---------- */
+function buildPdf(d) {
+  const { jsPDF } = window.jspdf; const pdf = new jsPDF({ unit: "mm", format: "a4" });
+  const W = 210, H = 297, M = 16, NAVY = [20, 27, 107], DARK = [14, 20, 82], BG = [243, 245, 250], ALT = [233, 237, 246], GREY = [90, 96, 122], LIGHT = [201, 204, 232];
+  const [lib, fam, , piecesDef] = CAT[d.demarche]; const k = calcul(d); const part = d.partenaire || "Partenaire";
+  const fill = c => pdf.setFillColor(...c), txt = c => pdf.setTextColor(...c), font = (s, w = "normal") => { pdf.setFont("helvetica", w); pdf.setFontSize(s); };
+  fill(BG); pdf.rect(0, 0, W, H, "F"); pdf.setDrawColor(...LIGHT); pdf.setLineWidth(.2); pdf.rect(8, 8, W - 16, H - 16);
+  fill(NAVY); pdf.rect(0, 0, W, 62, "F");
+  // logo hexagonal
+  const lx = M + 11, ly = 24, r = 10; pdf.setDrawColor(255, 255, 255); pdf.setLineWidth(r * .14);
+  const pts = [...Array(6)].map((_, i) => { const a = (90 + 60 * i) * Math.PI / 180; return [lx + r * Math.cos(a), ly - r * Math.sin(a)]; });
+  pdf.lines(pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]), pts[0][0], pts[0][1], [1, 1], "S", true);
+  fill([255, 255, 255]); for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) pdf.circle(lx + dx * r * .2, ly + dy * r * .2, r * .2, "F");
+  pdf.setDrawColor(...NAVY); pdf.setLineWidth(r * .09); pdf.line(lx - r * .42, ly - r * .42, lx + r * .42, ly + r * .42); pdf.line(lx - r * .42, ly + r * .42, lx + r * .42, ly - r * .42);
+  const x = M + 26; txt([255, 255, 255]); font(22, "bold"); pdf.text("JYVIS ASSURANCES", x, 22);
+  txt(LIGHT); font(9.5, "italic"); pdf.text("« Assurer son quotidien, c'est assurer son avenir »", x, 28);
+  font(8.5); pdf.text(agence.adresse || "", x, 36); pdf.text(`ORIAS ${agence.orias || ""}  •  Tél. ${agence.tel || ""}`, x, 41); pdf.text(agence.mail || "", x, 46);
+  font(8, "bold"); pdf.text("COURTIER DES PROFESSIONNELS", W - M, 18, { align: "right" });
+  txt([255, 255, 255]); font(13, "bold"); pdf.text(fam === "cg" ? "DEVIS CARTE GRISE" : fam === "pc" ? "DEVIS PERMIS DE CONDUIRE" : PROD[d.demarche][1], W - M, 26, { align: "right" });
+  font(8.5); pdf.text(`N° ${d.numero || "—"}`, W - M, 33, { align: "right" }); pdf.text(`Date : ${frDate(d.date)}`, W - M, 38, { align: "right" }); pdf.text(`Validité : ${d.validite || "—"}`, W - M, 43, { align: "right" });
+  let y = 72; let size = 15; font(size, "bold"); while (pdf.getTextWidth("Offre " + lib) > W - 2 * M - 60 && size > 10) { size -= .5; font(size, "bold"); }
+  txt(NAVY); pdf.text("Offre " + lib, M, y); txt(GREY); font(9); pdf.text(fam === "as" ? "Proposition établie par votre courtier JyVis Assurances" : "Démarche réalisée pour votre compte auprès de l'ANTS", M, y + 5.5);
+  fill([255, 255, 255]); pdf.setDrawColor(...LIGHT); pdf.setLineWidth(.3); pdf.roundedRect(W - M - 55, y - 7, 55, 15, 2, 2, "FD");
+  txt(GREY); font(7, "bold"); pdf.text("PARTENAIRE", W - M - 52, y - 3); txt(/olivier/i.test(part) ? [46, 125, 50] : NAVY); font(11, "bold"); pdf.text(part, W - M - 52, y + 3.5, { maxWidth: 50 });
+  y += 15;
+  const section = t => { fill(NAVY); pdf.rect(M, y, W - 2 * M, 6, "F"); txt([255, 255, 255]); font(9, "bold"); pdf.text(t.toUpperCase(), M + 3, y + 4.2); y += 6; };
+  const table = (rows, cols = 2, lh = 5.6) => {
+    const cw = (W - 2 * M) / cols, n = Math.ceil(rows.length / cols);
+    for (let i = 0; i < n; i++) {
+      if (i % 2 === 0) { fill(ALT); pdf.rect(M, y, W - 2 * M, lh, "F"); }
+      for (let j = 0; j < cols; j++) { const r = rows[i + j * n]; if (!r) continue; const xx = M + j * cw + 3;
+        txt(GREY); font(8); pdf.text(r[0], xx, y + lh - 1.8);
+        let s = 8.5, val = String(r[1] ?? "—") || "—"; font(s, "bold"); while (pdf.getTextWidth(val) > cw * .58 - 5 && s > 6) { s -= .25; font(s, "bold"); }
+        txt(DARK); pdf.text(val, xx + cw * .42, y + lh - 1.8); }
+      y += lh;
+    } y += 3;
+  };
+  const c = d.client || {};
+  if (fam === "as") {
+    const a = d.assurance || {}, lh = 5.2, base = [["Nom / Raison sociale", c.nom], ["Adresse", c.adresse], ["Téléphone", c.tel], ["E-mail", c.mail]];
+    if (isVehAssu(d.demarche)) { const cd = a.conducteur || {}, v = d.vehicule || {};
+      section("Souscripteur et conducteur"); table([...base, ["Conducteur principal", cd.nom], ["Date de naissance", frDate(cd.date_naissance)], ["Permis obtenu le", frDate(cd.date_permis)], ["Bonus-malus (CRM)", cd.crm]], 2, lh);
+      section("Véhicule assuré"); table([["Immatriculation", v.immatriculation], ["Marque", v.marque], ["Modèle", v.modele], ["1re mise en circ.", frDate(v.date_mec)], ["Puissance fiscale", (v.puissance_fiscale || "—") + " CV"], ["Énergie", v.energie], ["Usage / formule", a.formule], ["N° VIN", v.vin]], 2, lh);
+    } else { const e = a.entreprise || {};
+      section("Souscripteur et entreprise"); table([...base, ["Raison sociale", e.raison], ["SIRET", e.siret], ["Activité(s)", e.activite], ["Chiffre d'affaires", e.ca ? e.ca + " €" : ""], ["Effectif", e.effectif], ["Date de création", frDate(e.date_creation)]], 2, lh);
+    }
+    section("Garanties" + (a.formule ? " — formule " + a.formule : ""));
+    const gar = String(a.garanties || "").split("\n").map(l => l.trim()).filter(Boolean).map(l => { const [g, ...r] = l.split(";"); return [g.trim(), r.join(";").trim() || "Incluse"]; });
+    table(gar.length ? gar : [["Garanties", "À préciser"]], 1, lh);
+    const cw = (W - 2 * M - 8) / 3; [["COTISATION ANNUELLE", k.annuel, 1], ["FRAIS DE DOSSIER", k.fd, 0], ["TOTAL 1re ANNÉE", k.total1, 0]].forEach(([l, v, full], i) => {
+      const xx = M + i * (cw + 4); fill(full ? NAVY : [255, 255, 255]); pdf.setDrawColor(...NAVY); pdf.setLineWidth(.35); pdf.roundedRect(xx, y, cw, 18, 2, 2, "FD");
+      txt(full ? LIGHT : GREY); font(7.5, "bold"); pdf.text(l, xx + cw / 2, y + 6.5, { align: "center" }); txt(full ? [255, 255, 255] : NAVY); font(15, "bold"); pdf.text(eur(v), xx + cw / 2, y + 14, { align: "center" });
+    }); y += 22;
+    txt(NAVY); font(9, "bold"); pdf.text(`Mensualité de base : ${eur(k.mens)} (annuel ÷ 12)`, M, y + 1); y += 5;
+    fill([255, 255, 255]); pdf.setDrawColor(...NAVY); pdf.setLineWidth(.42); pdf.roundedRect(M, y, W - 2 * M, 17, 2, 2, "FD");
+    txt(NAVY); font(10.5, "bold"); pdf.text(`1er paiement à la souscription : ${eur(k.premier)}`, M + 4, y + 5.5);
+    txt(GREY); font(7.8); pdf.text(`${k.mois} mois × ${eur(k.mens)} + frais de dossier ${eur(k.fd)}, puis ${12 - k.mois} prélèvements mensuels de ${eur(k.mens)}.`, M + 4, y + 10.3);
+    pdf.text("Le contrat n'est émis qu'après signature du présent devis et réception de ce premier paiement.", M + 4, y + 14.3); y += 21;
+  } else {
+  section("Client"); table([["Nom / Raison sociale", c.nom], ["Adresse", c.adresse], ["Téléphone", c.tel], ["E-mail", c.mail]], 1);
+  if (fam === "cg") { const v = d.vehicule || {}; section("Véhicule (carte grise actuelle)");
+    table([["Immatriculation (A)", v.immatriculation], ["Marque (D.1)", v.marque], ["Modèle (D.3)", v.modele], ["VIN (E)", v.vin],
+      ["1re mise en circ. (B)", frDate(v.date_mec)], ["Puissance fiscale (P.6)", (v.puissance_fiscale || "—") + " CV"], ["Énergie (P.3)", v.energie], ["Ancien titulaire", v.ancien_titulaire]]);
+  } else { const p = d.permis || {}; section("Permis de conduire");
+    table([["N° de permis", p.numero], ["Catégories", p.categories], ["Date de délivrance", frDate(p.date_delivrance)], ["Délivré par", p.delivre_par], ["Date de naissance", frDate(p.date_naissance)], ["Motif", lib]]);
+  }
+  section("Détail des frais officiels");
+  const rows = k.L.map(([a, b]) => [a, eur(b)]); rows.push(["Frais de service JyVis HT", eur(k.ht)]); if (d.tva) rows.push(["TVA 20 % sur frais de service", eur(k.tva)]);
+  table(rows, 1);
+  const cw = (W - 2 * M - 8) / 3; [["FRAIS OFFICIELS", k.taxes, 1], [d.tva ? "FRAIS DE SERVICE TTC" : "FRAIS DE SERVICE", k.frais, 0], ["TOTAL À RÉGLER", k.total, 0]].forEach(([l, v, full], i) => {
+    const xx = M + i * (cw + 4); fill(full ? NAVY : [255, 255, 255]); pdf.setDrawColor(...NAVY); pdf.setLineWidth(.35); pdf.roundedRect(xx, y, cw, 20, 2, 2, "FD");
+    txt(full ? LIGHT : GREY); font(7.5, "bold"); pdf.text(l, xx + cw / 2, y + 7, { align: "center" }); txt(full ? [255, 255, 255] : NAVY); font(15, "bold"); pdf.text(eur(v), xx + cw / 2, y + 15, { align: "center" });
+  }); y += 24;
+  fill([255, 255, 255]); pdf.setDrawColor(...NAVY); pdf.setLineWidth(.42); pdf.roundedRect(M, y, W - 2 * M, 15, 2, 2, "FD");
+  txt(NAVY); font(10.5, "bold"); pdf.text(`Paiement à la signature : ${eur(k.total)}`, M + 4, y + 5.5);
+  txt(GREY); font(7.8); pdf.text("La démarche n'est déposée auprès de l'ANTS qu'après signature du présent devis, du mandat et réception du paiement.", M + 4, y + 10.5); y += 20;
+  }
+  section("Pièces à fournir");
+  const half = Math.ceil(piecesDef.length / 2), pw = (W - 2 * M) / 2, y0 = y + 4.5; const rec = new Set(d.pieces_recues || []);
+  piecesDef.forEach((p, i) => { const col = Math.floor(i / half), row = i % half, xx = M + 3 + col * pw, yy = y0 + row * 4.6;
+    pdf.setDrawColor(...NAVY); pdf.setLineWidth(.2); pdf.rect(xx, yy - 2.3, 2.6, 2.6); if (rec.has(p)) { txt(NAVY); font(8, "bold"); pdf.text("x", xx + .55, yy - .1); }
+    txt(DARK); font(p.length < 52 ? 8 : 7); pdf.text(p, xx + 4.5, yy); });
+  y = y0 + half * 4.6;
+  const sh = Math.min(24, H - 16 - y), sw = (W - 2 * M - 6) / 2;
+  [["BON POUR ACCORD", "Le client — date, nom et signature"], [`JYVIS ASSURANCES × ${part.toUpperCase()}`, "Le conseiller"]].forEach(([a, b], i) => {
+    const xx = M + i * (sw + 6); fill([255, 255, 255]); pdf.setDrawColor(...LIGHT); pdf.setLineWidth(.28); pdf.roundedRect(xx, y, sw, sh, 2, 2, "FD");
+    txt(NAVY); font(8.5, "bold"); pdf.text(a, xx + 3, y + 5, { maxWidth: sw - 6 }); txt(GREY); font(7.5); pdf.text(b, xx + 3, y + 9.5); });
+  fill(NAVY); pdf.rect(0, H - 12, W, 12, "F"); txt([255, 255, 255]); font(7.5);
+  pdf.text(`JYVIS ASSURANCES × ${part.toUpperCase()}  •  ${agence.adresse}  •  ORIAS ${agence.orias}  •  ${agence.tel}  •  ${agence.mail}`, W / 2, H - 4.8, { align: "center", maxWidth: W - 12 });
+  return pdf;
+}
+
+/* ---------- Word (.docx) à la charte JyVis, modifiable dans Word ---------- */
+function logoPng() {
+  const cv = document.createElement("canvas"), s = 240, r = 96, x = s / 2, y = s / 2; cv.width = cv.height = s;
+  const g = cv.getContext("2d"); g.fillStyle = "#141B6B"; g.fillRect(0, 0, s, s);
+  g.strokeStyle = "#fff"; g.lineWidth = r * .14; g.beginPath();
+  for (let i = 0; i < 6; i++) { const a = (90 + 60 * i) * Math.PI / 180; g[i ? "lineTo" : "moveTo"](x + r * Math.cos(a), y - r * Math.sin(a)); }
+  g.closePath(); g.stroke(); g.fillStyle = "#fff";
+  for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { g.beginPath(); g.arc(x + dx * r * .2, y + dy * r * .2, r * .2, 0, 7); g.fill(); }
+  g.strokeStyle = "#141B6B"; g.lineWidth = r * .09; g.beginPath();
+  g.moveTo(x - r * .42, y - r * .42); g.lineTo(x + r * .42, y + r * .42); g.moveTo(x - r * .42, y + r * .42); g.lineTo(x + r * .42, y - r * .42); g.stroke();
+  const b = atob(cv.toDataURL("image/png").split(",")[1]); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u;
+}
+function buildDocx(d) {
+  const X = window.docx, { Paragraph: P, TextRun: T, Table, TableRow: TR, TableCell: TC, WidthType, ShadingType, BorderStyle, AlignmentType: AL, VerticalAlign } = X;
+  const NAVY = "141B6B", ALT = "E9EDF6", GREY = "5A607A", LIGHT = "C9CCE8", DARK = "0E1452", F = "Arial";
+  const [lib, fam, , piecesDef] = CAT[d.demarche]; const k = calcul(d); const part = d.partenaire || "Partenaire";
+  const run = (text, o = {}) => new T({ text: String(text ?? ""), font: F, size: 18, ...o });
+  const para = (runs, o = {}) => new P({ children: [].concat(runs), spacing: { before: 0, after: 0 }, ...o });
+  const NB = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }, noB = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
+  const box = c => { const b = { style: BorderStyle.SINGLE, size: 8, color: c }; return { top: b, bottom: b, left: b, right: b }; };
+  const cell = (children, o = {}) => new TC({ children: [].concat(children), borders: noB, margins: { top: 60, bottom: 60, left: 120, right: 120 }, verticalAlign: VerticalAlign.CENTER, ...o });
+  const fillC = c => ({ fill: c, type: ShadingType.CLEAR, color: "auto" });
+  const CW = 10506;
+  const full = (rows, cols = [CW], borders = noB) => new Table({ width: { size: CW, type: WidthType.DXA }, columnWidths: cols, layout: X.TableLayoutType.FIXED, borders, rows });
+  const gap = (n = 90) => new P({ children: [], spacing: { before: 0, after: n } });
+  const section = t => full([new TR({ children: [cell(para(run(t.toUpperCase(), { bold: true, color: "FFFFFF" })), { shading: fillC(NAVY) })] })]);
+  const kv = (rows, cols = 2) => {
+    const n = Math.ceil(rows.length / cols), out = [];
+    for (let i = 0; i < n; i++) { const cells = [];
+      for (let j = 0; j < cols; j++) { const r = rows[i + j * n] || ["", ""]; const sh = i % 2 === 0 ? { shading: fillC(ALT) } : {};
+        cells.push(cell(para(run(r[0], { color: GREY, size: 16 })), sh), cell(para(run(r[1] || (r[0] ? "—" : ""), { bold: true, color: DARK })), sh)); }
+      out.push(new TR({ children: cells })); }
+    return full(out, cols === 1 ? [4000, 6506] : [2100, 3153, 2100, 3153]);
+  };
+  const c = d.client || {};
+  const head = full([new TR({ children: [
+    cell(new P({ children: [new X.ImageRun({ data: logoPng(), transformation: { width: 58, height: 58 } })] }), { shading: fillC(NAVY), width: { size: 12, type: WidthType.PERCENTAGE } }),
+    cell([para(run("JYVIS ASSURANCES", { bold: true, size: 40, color: "FFFFFF" })),
+      para(run("« Assurer son quotidien, c'est assurer son avenir »", { italics: true, color: LIGHT })), gap(80),
+      para(run(agence.adresse, { color: LIGHT, size: 16 })), para(run(`ORIAS ${agence.orias}  •  Tél. ${agence.tel}`, { color: LIGHT, size: 16 })), para(run(agence.mail, { color: LIGHT, size: 16 }))],
+      { shading: fillC(NAVY), width: { size: 53, type: WidthType.PERCENTAGE } }),
+    cell([para(run("COURTIER DES PROFESSIONNELS", { bold: true, color: LIGHT, size: 15 }), { alignment: AL.RIGHT }),
+      para(run(fam === "cg" ? "DEVIS CARTE GRISE" : fam === "pc" ? "DEVIS PERMIS DE CONDUIRE" : PROD[d.demarche][1], { bold: true, color: "FFFFFF", size: 24 }), { alignment: AL.RIGHT }), gap(80),
+      para(run(`N° ${d.numero || "—"}`, { color: "FFFFFF", size: 16 }), { alignment: AL.RIGHT }),
+      para(run(`Date : ${frDate(d.date)}`, { color: "FFFFFF", size: 16 }), { alignment: AL.RIGHT }),
+      para(run(`Validité : ${d.validite || "—"}`, { color: "FFFFFF", size: 16 }), { alignment: AL.RIGHT })],
+      { shading: fillC(NAVY), width: { size: 35, type: WidthType.PERCENTAGE } }),
+  ] })], [1250, 5650, 3606]);
+  const title = full([new TR({ children: [
+    cell([para(run("Offre " + lib, { bold: true, size: 30, color: NAVY })), para(run(fam === "as" ? "Proposition établie par votre courtier JyVis Assurances" : "Démarche réalisée pour votre compte auprès de l'ANTS", { color: GREY }))], { width: { size: 68, type: WidthType.PERCENTAGE } }),
+    cell([para(run("PARTENAIRE", { bold: true, size: 14, color: GREY })), para(run(part, { bold: true, size: 22, color: /olivier/i.test(part) ? "2E7D32" : NAVY }))], { borders: box(LIGHT), width: { size: 32, type: WidthType.PERCENTAGE } }),
+  ] })], [7100, 3406]);
+  const ident = fam === "cg"
+    ? [section("Véhicule (carte grise actuelle)"), kv([["Immatriculation (A)", d.vehicule?.immatriculation], ["Marque (D.1)", d.vehicule?.marque], ["Modèle (D.3)", d.vehicule?.modele], ["VIN (E)", d.vehicule?.vin],
+        ["1re mise en circ. (B)", frDate(d.vehicule?.date_mec)], ["Puissance fiscale (P.6)", (d.vehicule?.puissance_fiscale || "—") + " CV"], ["Énergie (P.3)", d.vehicule?.energie], ["Ancien titulaire", d.vehicule?.ancien_titulaire]])]
+    : [section("Permis de conduire"), kv([["N° de permis", d.permis?.numero], ["Catégories", d.permis?.categories], ["Date de délivrance", frDate(d.permis?.date_delivrance)],
+        ["Délivré par", d.permis?.delivre_par], ["Date de naissance", frDate(d.permis?.date_naissance)], ["Motif", lib]])];
+  const rows = k.L.map(([a, b]) => [a, eur(b)]); rows.push(["Frais de service JyVis HT", eur(k.ht)]); if (d.tva) rows.push(["TVA 20 % sur frais de service", eur(k.tva)]);
+  const cardCell = (l, v, f) => cell([para(run(l, { bold: true, size: 15, color: f ? LIGHT : GREY }), { alignment: AL.CENTER }), para(run(eur(v), { bold: true, size: 30, color: f ? "FFFFFF" : NAVY }), { alignment: AL.CENTER })],
+    { borders: box(NAVY), ...(f ? { shading: fillC(NAVY) } : {}), width: { size: 33, type: WidthType.PERCENTAGE }, margins: { top: 140, bottom: 140, left: 120, right: 120 } });
+  const cards = full([new TR({ children: [cardCell("FRAIS OFFICIELS", k.taxes, 1), cardCell(d.tva ? "FRAIS DE SERVICE TTC" : "FRAIS DE SERVICE", k.frais, 0), cardCell("TOTAL À RÉGLER", k.total, 0)] })], [3502, 3502, 3502], { ...noB, insideVertical: { style: BorderStyle.SINGLE, size: 8, color: NAVY } });
+  const pay = full([new TR({ children: [cell([para(run(`Paiement à la signature : ${eur(k.total)}`, { bold: true, size: 21, color: NAVY })),
+    para(run("La démarche n'est déposée auprès de l'ANTS qu'après signature du présent devis, du mandat et réception du paiement.", { color: GREY, size: 15 }))], { borders: box(NAVY) })] })]);
+  const rec = new Set(d.pieces_recues || []), half = Math.ceil(piecesDef.length / 2);
+  const piece = p => p ? para([run(rec.has(p) ? "☒  " : "☐  ", { color: NAVY }), run(p, { color: DARK, size: 16 })]) : para(run(""));
+  const pieces = full([...Array(half)].map((_, i) => new TR({ children: [cell(piece(piecesDef[i]), { margins: { top: 30, bottom: 30, left: 120, right: 120 } }), cell(piece(piecesDef[i + half]), { margins: { top: 30, bottom: 30, left: 120, right: 120 } })] })), [5253, 5253]);
+  const sig = (a, b) => cell([para(run(a, { bold: true, size: 17, color: NAVY })), para(run(b, { color: GREY, size: 15 })), gap(420)], { borders: box(LIGHT), width: { size: 50, type: WidthType.PERCENTAGE } });
+  const sigs = full([new TR({ children: [sig("BON POUR ACCORD", "Le client — date, nom et signature"), sig(`JYVIS ASSURANCES × ${part.toUpperCase()}`, "Le conseiller")] })], [5253, 5253], { ...noB, insideVertical: { style: BorderStyle.SINGLE, size: 8, color: "FFFFFF" } });
+  function assuBlocks() {
+    const a = d.assurance || {}, base = [["Nom / Raison sociale", c.nom], ["Adresse", c.adresse], ["Téléphone", c.tel], ["E-mail", c.mail]], out = [];
+    if (isVehAssu(d.demarche)) { const cd = a.conducteur || {}, v = d.vehicule || {};
+      out.push(section("Souscripteur et conducteur"), kv([...base, ["Conducteur principal", cd.nom], ["Date de naissance", frDate(cd.date_naissance)], ["Permis obtenu le", frDate(cd.date_permis)], ["Bonus-malus (CRM)", cd.crm]]), gap(),
+        section("Véhicule assuré"), kv([["Immatriculation", v.immatriculation], ["Marque", v.marque], ["Modèle", v.modele], ["1re mise en circ.", frDate(v.date_mec)], ["Puissance fiscale", (v.puissance_fiscale || "—") + " CV"], ["Énergie", v.energie], ["Usage / formule", a.formule], ["N° VIN", v.vin]]), gap());
+    } else { const e = a.entreprise || {};
+      out.push(section("Souscripteur et entreprise"), kv([...base, ["Raison sociale", e.raison], ["SIRET", e.siret], ["Activité(s)", e.activite], ["Chiffre d'affaires", e.ca ? e.ca + " €" : ""], ["Effectif", e.effectif], ["Date de création", frDate(e.date_creation)]]), gap());
+    }
+    const gar = String(a.garanties || "").split("\n").map(l => l.trim()).filter(Boolean).map(l => { const [g, ...r] = l.split(";"); return [g.trim(), r.join(";").trim() || "Incluse"]; });
+    const ac = full([new TR({ children: [cardCell("COTISATION ANNUELLE", k.annuel, 1), cardCell("FRAIS DE DOSSIER", k.fd, 0), cardCell("TOTAL 1re ANNÉE", k.total1, 0)] })], [3502, 3502, 3502], { ...noB, insideVertical: { style: BorderStyle.SINGLE, size: 8, color: NAVY } });
+    const ap = full([new TR({ children: [cell([para(run(`1er paiement à la souscription : ${eur(k.premier)}`, { bold: true, size: 21, color: NAVY })),
+      para(run(`${k.mois} mois × ${eur(k.mens)} + frais de dossier ${eur(k.fd)}, puis ${12 - k.mois} prélèvements mensuels de ${eur(k.mens)}.`, { color: GREY, size: 15 })),
+      para(run("Le contrat n'est émis qu'après signature du présent devis et réception de ce premier paiement.", { color: GREY, size: 15 }))], { borders: box(NAVY) })] })]);
+    out.push(section("Garanties" + (a.formule ? " — formule " + a.formule : "")), kv(gar.length ? gar : [["Garanties", "À préciser"]], 1), gap(), ac,
+      para(run(`Mensualité de base : ${eur(k.mens)} (annuel ÷ 12)`, { bold: true, color: NAVY }), { spacing: { before: 80, after: 80 } }), ap);
+    return out;
+  }
+  const footer = new X.Footer({ children: [full([new TR({ children: [cell(para(run(`JYVIS ASSURANCES × ${part.toUpperCase()}  •  ${agence.adresse}  •  ORIAS ${agence.orias}  •  ${agence.tel}  •  ${agence.mail}`, { color: "FFFFFF", size: 12 }), { alignment: AL.CENTER }), { shading: fillC(NAVY) })] })])] });
+  const doc = new X.Document({ creator: "JyVis Assurances", title: `Devis ${d.numero || ""}`, sections: [{
+    properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 500, bottom: 700, left: 700, right: 700, footer: 250 } } },
+    footers: { default: footer },
+    children: [head, gap(140), title, gap(120), ...(fam === "as" ? assuBlocks() : [section("Client"), kv([["Nom / Raison sociale", c.nom], ["Adresse", c.adresse], ["Téléphone", c.tel], ["E-mail", c.mail]], 1), gap(),
+      ...ident, gap(), section("Détail des frais officiels"), kv(rows, 1), gap(), cards, gap(), pay]), gap(), section("Pièces à fournir"), pieces, gap(120), sigs] }] });
+  return X.Packer.toBlob(doc);
+}
+
+let downloads = null;
+async function ensureNumero() {
+  if (!cur.numero) { if (db) { if (!(await save())) return false; } else cur.numero = nextNumero(cur); }
+  else if (dirty && db) await save();
+  return true;
+}
+const fileBase = () => `Devis_${cur.numero}_${(cur.client.nom || "client").replace(/[^\p{L}\d]+/gu, "_")}`;
+$("btnWord").onclick = async () => {
+  if (!window.docx) { toast("Le générateur Word n'a pas pu se charger"); return; }
+  if (!(await ensureNumero())) return;
+  if (!downloads) { toast("Téléchargement indisponible dans cette vue"); return; }
+  try { const blob = await buildDocx(cur); await downloads.save({ filename: fileBase() + ".docx", data: blob }); }
+  catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") toast("Téléchargement impossible"); }
+};
+$("btnPdf").onclick = async () => {
+  if (!window.jspdf) { toast("Le générateur PDF n'a pas pu se charger"); return; }
+  if (!(await ensureNumero())) return;
+  const pdf = buildPdf(cur), name = fileBase() + ".pdf";
+  if (!downloads) { toast("Téléchargement indisponible dans cette vue"); return; }
+  try { await downloads.save({ filename: name, data: pdf.output("blob") }); } catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") toast("Téléchargement impossible"); }
+};
+
+/* ---------- démarrage ---------- */
+cur = blank("cg"); renderChips(); loadForm();
+(async () => {
+  const c = window.claude;
+  if (c?.use) {
+    c.use("downloads").then(d => { downloads = d; $("btnPdf").hidden = $("btnWord").hidden = !d; });
+    db = await c.use("db");
+  }
+  if (!db) { renderList(); refresh(); return; }
+  const timer = setTimeout(() => { if (!docs.length) { $("list").textContent = ""; const e = document.createElement("div"); e.className = "empty"; e.textContent = "Les dossiers ne répondent pas encore. Vérifiez la connexion ; la liste se mettra à jour toute seule."; $("list").append(e); } }, 10000);
+  db.doc("config/agence").onSnapshot(s => { if (s.exists) agence = { ...AGENCE_DEF, ...s.data() }; }, () => {});
+  db.collection("dossiers").orderBy("updatedAt", "desc").onSnapshot(snap => {
+    if (!snap.metadata.fromCache) clearTimeout(timer);
+    docs = snap.docs.map(s => ({ id: s.id, data: s.data() }));
+    renderList(); refresh();
+  }, () => { clearTimeout(timer); renderList(); });
+})();
+</script>
