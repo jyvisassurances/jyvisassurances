@@ -9,6 +9,7 @@ Contenu :
 | `docker-compose.yml` | n8n + PostgreSQL + Caddy (HTTPS automatique) |
 | `Caddyfile` | Reverse proxy vers n8n |
 | `.env.example` | Variables à copier dans `.env` |
+| `whatsapp/` | Agent IA WhatsApp Business et tableau de bord des prospects — voir [whatsapp/README.md](whatsapp/README.md) |
 
 ## Prérequis
 

@@ -1,0 +1,686 @@
+{
+  "id": "jyvisWaTableau001",
+  "name": "JyVis – Tableau de bord WhatsApp",
+  "active": false,
+  "nodes": [
+    {
+      "id": "2de04cb4-d5eb-563f-a548-0fa537c76ed8",
+      "name": "Page tableau de bord",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "jyvis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "3bfdbfea-bf98-5e1b-b2bb-d72a287c45a6"
+    },
+    {
+      "id": "dd68d57d-1146-5908-a0b9-bb83b15cc6ea",
+      "name": "Contrôle d’accès",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Accès protégé par identifiant / mot de passe (variables TABLEAU_UTILISATEUR et TABLEAU_MOT_DE_PASSE).\nconst crypto = require('crypto');\nfunction egal(a, b) {\n  const x = crypto.createHash('sha256').update(String(a)).digest();\n  const y = crypto.createHash('sha256').update(String(b)).digest();\n  return crypto.timingSafeEqual(x, y);\n}\nconst j = $input.first().json;\nconst h = String(j.headers?.authorization || '');\nlet ok = false;\nif ($env.TABLEAU_MOT_DE_PASSE && h.startsWith('Basic ')) {\n  const [u, ...reste] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':');\n  ok = egal(u, $env.TABLEAU_UTILISATEUR || 'jyvis') & egal(reste.join(':'), $env.TABLEAU_MOT_DE_PASSE);\n}\n\nconst id = /^\\d{1,18}$/.test(String(j.query?.id || '')) ? String(j.query.id) : '';\nreturn [{ json: { ok: !!ok, id, erreur: String(j.query?.erreur || '') } }];\n"
+      }
+    },
+    {
+      "id": "6f02d0a5-75e2-53f7-b7f7-284f8a6a61a4",
+      "name": "Accès autorisé ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc59d71e-8848-518f-ac28-126c81cb240b",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "52b05e4e-624e-52e5-9c49-70ed0191b266",
+      "name": "Charger les prospects",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT COALESCE(json_agg(p ORDER BY p.maj_le DESC), '[]'::json) FROM (\n     SELECT id, wa_id, nom, produit, score, statut, mode, opt_out, resume, maj_le, dernier_entrant\n     FROM prospects ORDER BY maj_le DESC LIMIT 300) p) AS prospects,\n  (SELECT row_to_json(x) FROM prospects x WHERE x.id = NULLIF($1, '')::bigint) AS fiche,\n  (SELECT COALESCE(json_agg(m ORDER BY m.cree_le, m.id), '[]'::json)\n     FROM messages m WHERE m.prospect_id = NULLIF($1, '')::bigint) AS messages,\n  (SELECT json_build_object(\n     'total', count(*),\n     'semaine', count(*) FILTER (WHERE cree_le > now() - interval '7 days'),\n     'chauds', count(*) FILTER (WHERE score = 'chaud' AND statut NOT IN ('converti', 'perdu')),\n     'a_reprendre', count(*) FILTER (WHERE mode = 'humain' AND statut NOT IN ('converti', 'perdu')),\n     'convertis', count(*) FILTER (WHERE statut = 'converti')) FROM prospects) AS stats;",
+        "options": {
+          "queryReplacement": "={{ [$json.id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    },
+    {
+      "id": "36a09af6-8c22-5a5d-bcf0-8c6d7987b992",
+      "name": "Construire la page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst ctx = $('Contrôle d’accès').first().json;\nconst e = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst date = s => s ? new Date(s).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }) : '';\nconst STATUTS = { nouveau: 'Nouveau', en_cours: 'En cours', qualifie: 'Qualifié', rdv: 'RDV', devis_envoye: 'Devis envoyé', converti: 'Converti', perdu: 'Perdu' };\nconst s = d.stats || {};\nconst lignes = (d.prospects || []).map(p => `\n  <a class=\"ligne ${String(p.id) === ctx.id ? 'actif' : ''}\" href=\"?id=${p.id}\">\n    <span class=\"nom\">${e(p.nom || '+' + p.wa_id)}</span>\n    <span class=\"pastille ${e(p.score)}\">${e({ tiede: 'tiède' }[p.score] || p.score)}</span>\n    ${p.mode === 'humain' ? '<span class=\"pastille humain\">à reprendre</span>' : ''}\n    ${p.opt_out ? '<span class=\"pastille stop\">STOP</span>' : ''}\n    <span class=\"meta\">${e(p.produit || '—')} · ${e(STATUTS[p.statut] || p.statut)} · ${date(p.maj_le)}</span>\n  </a>`).join('') || '<p class=\"vide\">Aucun prospect pour le moment.</p>';\n\nlet detail = '<div class=\"vide\">Sélectionnez un prospect.</div>';\nconst f = d.fiche;\nif (f) {\n  const fenetre = f.dernier_entrant && (Date.now() - new Date(f.dernier_entrant).getTime()) < 24 * 3600 * 1000;\n  const infos = Object.entries(f.infos || {}).map(([k, v]) => `<dt>${e(k)}</dt><dd>${e(v)}</dd>`).join('');\n  const bulles = (d.messages || []).map(m => `\n    <div class=\"bulle ${m.sens === 'entrant' ? 'in' : 'out'}\">\n      <div class=\"qui\">${{ entrant: e(f.nom || 'Prospect'), agent: 'Agent IA', conseiller: 'Conseiller', relance: 'Relance auto' }[m.sens] || e(m.sens)} · ${date(m.cree_le)}</div>\n      ${e(m.texte).replace(/\\n/g, '<br>')}\n    </div>`).join('');\n  const optionsStatut = Object.entries(STATUTS).map(([k, v]) => `<option value=\"${k}\" ${f.statut === k ? 'selected' : ''}>${v}</option>`).join('');\n  detail = `\n    <div class=\"entete\">\n      <div><h2>${e(f.nom || 'Prospect')}</h2><a href=\"https://wa.me/${e(f.wa_id)}\" target=\"_blank\" rel=\"noopener\">+${e(f.wa_id)}</a></div>\n      <div class=\"actions\">\n        <form method=\"post\" action=\"jyvis-action\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\">\n          ${f.mode === 'ia'\n            ? '<button name=\"action\" value=\"humain\">Reprendre la main</button>'\n            : '<button name=\"action\" value=\"ia\">Rendre la main à l’agent IA</button>'}\n        </form>\n        <form method=\"post\" action=\"jyvis-action\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\"><input type=\"hidden\" name=\"action\" value=\"statut\">\n          <select name=\"statut\" onchange=\"this.form.submit()\">${optionsStatut}</select>\n        </form>\n      </div>\n    </div>\n    <p class=\"resume\">${e(f.resume || 'Pas encore de résumé.')}</p>\n    ${infos ? `<dl>${infos}</dl>` : ''}\n    <div class=\"fil\">${bulles}</div>\n    ${f.opt_out ? '<p class=\"alerte\">Ce prospect a demandé à ne plus recevoir de messages.</p>'\n      : fenetre ? `<form method=\"post\" action=\"jyvis-action\" class=\"envoi\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\"><input type=\"hidden\" name=\"action\" value=\"repondre\">\n          <textarea name=\"texte\" rows=\"3\" required placeholder=\"Votre réponse (l’agent IA s’arrête pour ce prospect)\"></textarea><button>Envoyer</button></form>`\n      : '<p class=\"alerte\">Plus de 24 h depuis son dernier message : WhatsApp n’autorise plus de message libre. Appelez le prospect ou attendez qu’il réécrive.</p>'}`;\n}\n\nconst html = `<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>JyVis – Prospects WhatsApp</title>\n<style>\n:root{--bleu:#0b2a4a;--fond:#f4f6f9;--carte:#fff;--texte:#1b2430;--gris:#6b7685;--bord:#dde3ea;--vert:#1f8f5f;--orange:#c97a12;--rouge:#c0392b}\n@media (prefers-color-scheme:dark){:root{--fond:#0f141a;--carte:#18202a;--texte:#e6ebf1;--gris:#94a0ae;--bord:#2a3542}}\n*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--fond);color:var(--texte)}\nheader{background:var(--bleu);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}\nheader h1{margin:0;font-size:18px}.stats{display:flex;gap:16px;flex-wrap:wrap;font-size:13px}.stats b{font-size:17px;display:block}\nmain{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px;padding:16px;max-width:1300px;margin:auto}\n.liste,.detail{background:var(--carte);border:1px solid var(--bord);border-radius:10px}\n.liste{max-height:calc(100vh - 120px);overflow:auto}.ligne{display:block;padding:10px 14px;border-bottom:1px solid var(--bord);color:inherit;text-decoration:none}\n.ligne.actif,.ligne:hover{background:rgba(11,42,74,.08)}.nom{font-weight:600;margin-right:6px}.meta{display:block;color:var(--gris);font-size:13px}\n.pastille{font-size:11px;padding:1px 7px;border-radius:9px;color:#fff;background:var(--gris);margin-right:4px}.chaud{background:var(--rouge)}.tiede{background:var(--orange)}.froid{background:#5b7a99}.humain{background:var(--vert)}.stop{background:#000}\n.detail{padding:16px;min-width:0}.entete{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.entete h2{margin:0}.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}\nbutton,select{font:inherit;padding:7px 12px;border-radius:7px;border:1px solid var(--bord);background:var(--bleu);color:#fff;cursor:pointer}select{background:var(--carte);color:var(--texte)}\n.resume{background:rgba(11,42,74,.06);padding:10px;border-radius:8px}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;font-size:14px}dt{color:var(--gris)}dd{margin:0}\n.fil{display:flex;flex-direction:column;gap:8px;margin:16px 0}.bulle{max-width:80%;padding:8px 12px;border-radius:10px;word-wrap:break-word}.in{align-self:flex-start;background:rgba(127,127,127,.12)}.out{align-self:flex-end;background:rgba(31,143,95,.15)}\n.qui{font-size:12px;color:var(--gris)}.envoi{display:flex;gap:8px}.envoi textarea{flex:1;font:inherit;padding:8px;border-radius:7px;border:1px solid var(--bord);background:var(--carte);color:var(--texte)}\n.alerte{background:rgba(192,57,43,.12);padding:10px;border-radius:8px}.vide{color:var(--gris);padding:24px;text-align:center}\n@media (max-width:760px){main{grid-template-columns:1fr;padding:12px}.liste{max-height:40vh}.bulle{max-width:92%}.envoi{flex-direction:column}}\n</style></head><body>\n<header><h1>JyVis Assurances · Prospects WhatsApp</h1>\n<div class=\"stats\"><span><b>${s.total ?? 0}</b>prospects</span><span><b>${s.semaine ?? 0}</b>cette semaine</span><span><b>${s.chauds ?? 0}</b>chauds</span><span><b>${s.a_reprendre ?? 0}</b>à reprendre</span><span><b>${s.convertis ?? 0}</b>convertis</span></div></header>\n${ctx.erreur ? '<p class=\"alerte\" style=\"margin:16px\">Le message n’a pas pu être envoyé par WhatsApp (fenêtre de 24 h dépassée ou numéro invalide).</p>' : ''}\n<main><nav class=\"liste\">${lignes}</nav><section class=\"detail\">${detail}</section></main>\n</body></html>`;\nreturn [{ json: { html } }];\n"
+      }
+    },
+    {
+      "id": "200f29bc-17bd-5030-8bc7-a13616dd94c3",
+      "name": "Afficher la page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        },
+        "responseBody": "={{ $json.html }}"
+      }
+    },
+    {
+      "id": "125b2931-0038-5df9-8e19-91de29ab9791",
+      "name": "Refuser l’accès",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        120
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "WWW-Authenticate",
+                "value": "Basic realm=\"JyVis Assurances\", charset=\"UTF-8\""
+              }
+            ]
+          }
+        },
+        "responseBody": "Accès refusé"
+      }
+    },
+    {
+      "id": "e5bc3181-4be7-58ad-8fc3-6153ba804761",
+      "name": "Action du conseiller",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jyvis-action",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "5df2f79e-0851-549d-ab16-70da9051a2ed"
+    },
+    {
+      "id": "67f0a4f3-4f44-54cf-ae39-c3b4b9066383",
+      "name": "Contrôle de l’action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// Accès protégé par identifiant / mot de passe (variables TABLEAU_UTILISATEUR et TABLEAU_MOT_DE_PASSE).\nconst crypto = require('crypto');\nfunction egal(a, b) {\n  const x = crypto.createHash('sha256').update(String(a)).digest();\n  const y = crypto.createHash('sha256').update(String(b)).digest();\n  return crypto.timingSafeEqual(x, y);\n}\nconst j = $input.first().json;\nconst h = String(j.headers?.authorization || '');\nlet ok = false;\nif ($env.TABLEAU_MOT_DE_PASSE && h.startsWith('Basic ')) {\n  const [u, ...reste] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':');\n  ok = egal(u, $env.TABLEAU_UTILISATEUR || 'jyvis') & egal(reste.join(':'), $env.TABLEAU_MOT_DE_PASSE);\n}\n\n// Protection contre les requêtes envoyées depuis un autre site.\nconst origine = String(j.headers?.origin || j.headers?.referer || '');\nif (!origine.startsWith('https://' + $env.N8N_HOST)) ok = false;\nconst b = j.body || {};\nconst id = /^\\d{1,18}$/.test(String(b.id || '')) ? String(b.id) : '';\nconst action = ['repondre', 'humain', 'ia', 'statut'].includes(b.action) ? b.action : '';\nconst statut = ['nouveau', 'en_cours', 'qualifie', 'rdv', 'devis_envoye', 'converti', 'perdu'].includes(b.statut) ? b.statut : '';\nconst texte = String(b.texte || '').trim().slice(0, 4000);\nif (!id || !action || (action === 'repondre' && !texte) || (action === 'statut' && !statut)) ok = false;\nreturn [{ json: { ok: !!ok, id, action, statut, texte } }];\n"
+      }
+    },
+    {
+      "id": "d4cb12e6-fa76-5937-9e75-ff2de25c76ec",
+      "name": "Action autorisée ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4b1c1586-b582-5220-8327-ae418fecd887",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6bea0f80-4fa1-50e7-96c5-1247fa4e4e45",
+      "name": "Répondre au prospect ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4228e58d-c565-5188-8609-373b34ebd027",
+              "leftValue": "={{ $json.action === 'repondre' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "0400918b-201e-5c5f-ba14-bda1cd3d0b1a",
+      "name": "Retrouver le prospect",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        960,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT $1::bigint AS prospect_id, COALESCE((SELECT wa_id FROM prospects WHERE id = $1::bigint AND NOT opt_out), '') AS wa_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    },
+    {
+      "id": "70a65624-ce87-5dc6-b567-120744400a3d",
+      "name": "Message du conseiller",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const t = $('Contrôle de l’action').first().json.texte;\nreturn $input.all().map(i => ({ json: { prospect_id: i.json.prospect_id, wa_id: i.json.wa_id, reponse: t } }));\n"
+      }
+    },
+    {
+      "id": "7a0aec8c-9252-53b1-ab0e-781db1e75d00",
+      "name": "Destinataire valide ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e75ef5b-417c-5b1d-80d5-7e67eed85a03",
+              "leftValue": "={{ !!$json.wa_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "578814f6-2858-519b-9246-17839e69673e",
+      "name": "Envoyer sur WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $env.GRAPH_API_VERSION || 'v23.0' }}/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.wa_id, type: 'text', text: { preview_url: false, body: $json.reponse } }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "5690610d-56fe-5711-8546-24e85e579b3c",
+      "name": "Noter la réponse",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1920,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH u AS (\n  UPDATE prospects SET mode = 'humain',\n    dernier_sortant = CASE WHEN $2::boolean THEN now() ELSE dernier_sortant END, maj_le = now()\n  WHERE id = $1::bigint RETURNING id\n)\n, i AS (\n  INSERT INTO messages (prospect_id, sens, texte)\n  SELECT id, 'conseiller', CASE WHEN $2::boolean THEN $3 ELSE '[NON ENVOYÉ] ' || $3 END FROM u\n  RETURNING id\n)\nSELECT $1::bigint AS id, $2::boolean AND EXISTS (SELECT 1 FROM i) AS envoye;",
+        "options": {
+          "queryReplacement": "={{ (() => { const m = $('Message du conseiller').item.json; return [m.prospect_id, !!($json.messages && $json.messages[0] && $json.messages[0].id), m.reponse]; })() }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    },
+    {
+      "id": "69e9f0f1-7a6f-5505-9fe6-217f14918269",
+      "name": "Retour après envoi",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        200
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "=jyvis?id={{ $json.id }}{{ $json.envoye ? '' : '&erreur=1' }}"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "70c6105d-db3c-59d3-b493-3ea32288d09b",
+      "name": "Appliquer l’action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        960,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH u AS (\n  UPDATE prospects SET\n    mode = CASE $2 WHEN 'humain' THEN 'humain' WHEN 'ia' THEN 'ia' ELSE mode END,\n    alerte_envoyee = CASE WHEN $2 = 'ia' THEN false ELSE alerte_envoyee END,\n    statut = CASE WHEN $2 = 'statut' THEN $3 ELSE statut END,\n    maj_le = now()\n  WHERE id = $1::bigint\n  RETURNING id\n)\nSELECT $1::bigint AS id, (SELECT count(*) FROM u) AS modifie;",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $json.action, $json.statut] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    },
+    {
+      "id": "7fa03da5-f784-5aff-b8b9-483cfed92c58",
+      "name": "Retour à la fiche",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        420
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "=jyvis?id={{ $json.id }}"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "116d6a79-55e6-56ce-b109-fac664bb4fba",
+      "name": "Refuser l’action",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        560
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "WWW-Authenticate",
+                "value": "Basic realm=\"JyVis Assurances\", charset=\"UTF-8\""
+              }
+            ]
+          }
+        },
+        "responseBody": "Accès refusé"
+      }
+    }
+  ],
+  "connections": {
+    "Page tableau de bord": {
+      "main": [
+        [
+          {
+            "node": "Contrôle d’accès",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contrôle d’accès": {
+      "main": [
+        [
+          {
+            "node": "Accès autorisé ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accès autorisé ?": {
+      "main": [
+        [
+          {
+            "node": "Charger les prospects",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refuser l’accès",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Charger les prospects": {
+      "main": [
+        [
+          {
+            "node": "Construire la page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construire la page": {
+      "main": [
+        [
+          {
+            "node": "Afficher la page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action du conseiller": {
+      "main": [
+        [
+          {
+            "node": "Contrôle de l’action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contrôle de l’action": {
+      "main": [
+        [
+          {
+            "node": "Action autorisée ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action autorisée ?": {
+      "main": [
+        [
+          {
+            "node": "Répondre au prospect ?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refuser l’action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Répondre au prospect ?": {
+      "main": [
+        [
+          {
+            "node": "Retrouver le prospect",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Appliquer l’action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrouver le prospect": {
+      "main": [
+        [
+          {
+            "node": "Message du conseiller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message du conseiller": {
+      "main": [
+        [
+          {
+            "node": "Destinataire valide ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Destinataire valide ?": {
+      "main": [
+        [
+          {
+            "node": "Envoyer sur WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Noter la réponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envoyer sur WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Noter la réponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Noter la réponse": {
+      "main": [
+        [
+          {
+            "node": "Retour après envoi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appliquer l’action": {
+      "main": [
+        [
+          {
+            "node": "Retour à la fiche",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
+}

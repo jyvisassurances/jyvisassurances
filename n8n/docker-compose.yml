@@ -2,7 +2,7 @@
 # n8n + PostgreSQL + Caddy (HTTPS automatique via Let's Encrypt)
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -10,6 +10,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./whatsapp/schema.sql:/docker-entrypoint-initdb.d/10-whatsapp.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -32,6 +33,7 @@ services:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       N8N_HOST: ${N8N_HOST}
       N8N_PORT: 5678
+      N8N_LISTEN_ADDRESS: 0.0.0.0
       N8N_PROTOCOL: https
       WEBHOOK_URL: https://${N8N_HOST}/
       N8N_PROXY_HOPS: 1
@@ -43,6 +45,23 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: 336
+      # Agent WhatsApp (voir whatsapp/README.md)
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+      GRAPH_API_VERSION: ${GRAPH_API_VERSION:-v23.0}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-5-5}
+      CABINET_ORIAS: ${CABINET_ORIAS:-}
+      CABINET_HORAIRES: ${CABINET_HORAIRES:-}
+      CONSEILLER_EMAIL: ${CONSEILLER_EMAIL:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USER: ${SMTP_USER:-}
+      TABLEAU_UTILISATEUR: ${TABLEAU_UTILISATEUR:-jyvis}
+      TABLEAU_MOT_DE_PASSE: ${TABLEAU_MOT_DE_PASSE:-}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./local-files:/files

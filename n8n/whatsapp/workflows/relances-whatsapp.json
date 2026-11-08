@@ -1,0 +1,169 @@
+{
+  "id": "jyvisWaRelance001",
+  "name": "JyVis – Relances WhatsApp",
+  "active": false,
+  "nodes": [
+    {
+      "id": "2e17b1ae-173e-5d85-b3f1-e4fec7794fc1",
+      "name": "Toutes les heures",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b0bbbc31-f5f6-5003-8588-6755e698fbda",
+      "name": "Prospects à relancer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id AS prospect_id, wa_id, nom FROM prospects\nWHERE mode = 'ia' AND NOT opt_out AND relances = 0\n  AND statut IN ('nouveau', 'en_cours')\n  AND dernier_sortant > dernier_entrant\n  AND dernier_sortant < now() - interval '3 hours'\n  AND dernier_entrant > now() - interval '23 hours'      -- fenêtre gratuite de 24 h de WhatsApp\n  AND extract(hour FROM now() AT TIME ZONE 'Europe/Paris') BETWEEN 9 AND 19\nLIMIT 50;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    },
+    {
+      "id": "3d8eda0c-aefe-5ba0-9df6-d7b0f18780c3",
+      "name": "Texte de relance",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().filter(i => i.json.wa_id).map(({ json: p }) => {\n  const prenom = String(p.nom || '').split(' ')[0];\n  return { json: {\n    prospect_id: p.prospect_id, wa_id: p.wa_id, sens: 'relance',\n    reponse: `Bonjour${prenom ? ' ' + prenom : ''}, je reviens vers vous pour votre demande d'assurance. Souhaitez-vous que nous continuions ? Il ne me manque que quelques informations pour transmettre votre dossier à un conseiller JyVis Assurances.`,\n  } };\n});\n"
+      }
+    },
+    {
+      "id": "578814f6-2858-519b-9246-17839e69673e",
+      "name": "Envoyer sur WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $env.GRAPH_API_VERSION || 'v23.0' }}/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.wa_id, type: 'text', text: { preview_url: false, body: $json.reponse } }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "5db02227-40c4-5935-b414-060fee4fe542",
+      "name": "Noter la relance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH u AS (\n  UPDATE prospects SET relances = relances + 1,\n    dernier_sortant = CASE WHEN $2::boolean THEN now() ELSE dernier_sortant END, maj_le = now()\n  WHERE id = $1::bigint RETURNING id\n)\nINSERT INTO messages (prospect_id, sens, texte)\nSELECT id, 'relance', CASE WHEN $2::boolean THEN $3 ELSE '[NON ENVOYÉ] ' || $3 END FROM u\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ (() => { const m = $('Texte de relance').item.json; return [m.prospect_id, !!($json.messages && $json.messages[0] && $json.messages[0].id), m.reponse]; })() }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Toutes les heures": {
+      "main": [
+        [
+          {
+            "node": "Prospects à relancer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prospects à relancer": {
+      "main": [
+        [
+          {
+            "node": "Texte de relance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Texte de relance": {
+      "main": [
+        [
+          {
+            "node": "Envoyer sur WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envoyer sur WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Noter la relance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
+}
