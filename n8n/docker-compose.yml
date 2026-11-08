@@ -62,6 +62,12 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       TABLEAU_UTILISATEUR: ${TABLEAU_UTILISATEUR:-jyvis}
       TABLEAU_MOT_DE_PASSE: ${TABLEAU_MOT_DE_PASSE:-}
+      # Campagnes (voir campagnes/README.md)
+      LEADS_CLE: ${LEADS_CLE:-}
+      WHATSAPP_MODELE_BIENVENUE: ${WHATSAPP_MODELE_BIENVENUE:-}
+      WHATSAPP_MODELE_LANGUE: ${WHATSAPP_MODELE_LANGUE:-fr}
+      GOOGLE_ADS_CONVERSION_QUALIFIE: ${GOOGLE_ADS_CONVERSION_QUALIFIE:-Prospect qualifié}
+      GOOGLE_ADS_CONVERSION_CLIENT: ${GOOGLE_ADS_CONVERSION_CLIENT:-Client signé}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./local-files:/files

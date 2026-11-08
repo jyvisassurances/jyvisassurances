@@ -79,7 +79,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT\n  (SELECT COALESCE(json_agg(p ORDER BY p.maj_le DESC), '[]'::json) FROM (\n     SELECT id, wa_id, nom, produit, score, statut, mode, opt_out, resume, maj_le, dernier_entrant\n     FROM prospects ORDER BY maj_le DESC LIMIT 300) p) AS prospects,\n  (SELECT row_to_json(x) FROM prospects x WHERE x.id = NULLIF($1, '')::bigint) AS fiche,\n  (SELECT COALESCE(json_agg(m ORDER BY m.cree_le, m.id), '[]'::json)\n     FROM messages m WHERE m.prospect_id = NULLIF($1, '')::bigint) AS messages,\n  (SELECT json_build_object(\n     'total', count(*),\n     'semaine', count(*) FILTER (WHERE cree_le > now() - interval '7 days'),\n     'chauds', count(*) FILTER (WHERE score = 'chaud' AND statut NOT IN ('converti', 'perdu')),\n     'a_reprendre', count(*) FILTER (WHERE mode = 'humain' AND statut NOT IN ('converti', 'perdu')),\n     'convertis', count(*) FILTER (WHERE statut = 'converti')) FROM prospects) AS stats;",
+        "query": "SELECT\n  (SELECT COALESCE(json_agg(p ORDER BY p.maj_le DESC), '[]'::json) FROM (\n     SELECT id, wa_id, nom, produit, score, statut, mode, opt_out, resume, maj_le, dernier_entrant, origine, source\n     FROM prospects ORDER BY maj_le DESC LIMIT 300) p) AS prospects,\n  (SELECT row_to_json(x) FROM prospects x WHERE x.id = NULLIF($1, '')::bigint) AS fiche,\n  (SELECT COALESCE(json_agg(m ORDER BY m.cree_le, m.id), '[]'::json)\n     FROM messages m WHERE m.prospect_id = NULLIF($1, '')::bigint) AS messages,\n  (SELECT json_build_object(\n     'total', count(*),\n     'semaine', count(*) FILTER (WHERE cree_le > now() - interval '7 days'),\n     'chauds', count(*) FILTER (WHERE score = 'chaud' AND statut NOT IN ('converti', 'perdu')),\n     'a_reprendre', count(*) FILTER (WHERE mode = 'humain' AND statut NOT IN ('converti', 'perdu')),\n     'convertis', count(*) FILTER (WHERE statut = 'converti')) FROM prospects) AS stats,\n  (SELECT COALESCE(json_agg(c ORDER BY c.total DESC), '[]'::json) FROM (\n     SELECT COALESCE(source, CASE origine WHEN 'site' THEN 'Site (sans campagne)' ELSE 'WhatsApp direct' END) AS source,\n            count(*) AS total,\n            count(*) FILTER (WHERE statut IN ('qualifie', 'rdv', 'devis_envoye', 'converti')) AS qualifies,\n            count(*) FILTER (WHERE statut = 'converti') AS convertis\n     FROM prospects WHERE cree_le > now() - interval '30 days' GROUP BY 1) c) AS campagnes;",
         "options": {
           "queryReplacement": "={{ [$json.id] }}"
         }
@@ -101,7 +101,7 @@
         -100
       ],
       "parameters": {
-        "jsCode": "const d = $input.first().json;\nconst ctx = $('Contrôle d’accès').first().json;\nconst e = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst date = s => s ? new Date(s).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }) : '';\nconst STATUTS = { nouveau: 'Nouveau', en_cours: 'En cours', qualifie: 'Qualifié', rdv: 'RDV', devis_envoye: 'Devis envoyé', converti: 'Converti', perdu: 'Perdu' };\nconst s = d.stats || {};\nconst lignes = (d.prospects || []).map(p => `\n  <a class=\"ligne ${String(p.id) === ctx.id ? 'actif' : ''}\" href=\"?id=${p.id}\">\n    <span class=\"nom\">${e(p.nom || '+' + p.wa_id)}</span>\n    <span class=\"pastille ${e(p.score)}\">${e({ tiede: 'tiède' }[p.score] || p.score)}</span>\n    ${p.mode === 'humain' ? '<span class=\"pastille humain\">à reprendre</span>' : ''}\n    ${p.opt_out ? '<span class=\"pastille stop\">STOP</span>' : ''}\n    <span class=\"meta\">${e(p.produit || '—')} · ${e(STATUTS[p.statut] || p.statut)} · ${date(p.maj_le)}</span>\n  </a>`).join('') || '<p class=\"vide\">Aucun prospect pour le moment.</p>';\n\nlet detail = '<div class=\"vide\">Sélectionnez un prospect.</div>';\nconst f = d.fiche;\nif (f) {\n  const fenetre = f.dernier_entrant && (Date.now() - new Date(f.dernier_entrant).getTime()) < 24 * 3600 * 1000;\n  const infos = Object.entries(f.infos || {}).map(([k, v]) => `<dt>${e(k)}</dt><dd>${e(v)}</dd>`).join('');\n  const bulles = (d.messages || []).map(m => `\n    <div class=\"bulle ${m.sens === 'entrant' ? 'in' : 'out'}\">\n      <div class=\"qui\">${{ entrant: e(f.nom || 'Prospect'), agent: 'Agent IA', conseiller: 'Conseiller', relance: 'Relance auto' }[m.sens] || e(m.sens)} · ${date(m.cree_le)}</div>\n      ${e(m.texte).replace(/\\n/g, '<br>')}\n    </div>`).join('');\n  const optionsStatut = Object.entries(STATUTS).map(([k, v]) => `<option value=\"${k}\" ${f.statut === k ? 'selected' : ''}>${v}</option>`).join('');\n  detail = `\n    <div class=\"entete\">\n      <div><h2>${e(f.nom || 'Prospect')}</h2><a href=\"https://wa.me/${e(f.wa_id)}\" target=\"_blank\" rel=\"noopener\">+${e(f.wa_id)}</a></div>\n      <div class=\"actions\">\n        <form method=\"post\" action=\"jyvis-action\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\">\n          ${f.mode === 'ia'\n            ? '<button name=\"action\" value=\"humain\">Reprendre la main</button>'\n            : '<button name=\"action\" value=\"ia\">Rendre la main à l’agent IA</button>'}\n        </form>\n        <form method=\"post\" action=\"jyvis-action\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\"><input type=\"hidden\" name=\"action\" value=\"statut\">\n          <select name=\"statut\" onchange=\"this.form.submit()\">${optionsStatut}</select>\n        </form>\n      </div>\n    </div>\n    <p class=\"resume\">${e(f.resume || 'Pas encore de résumé.')}</p>\n    ${infos ? `<dl>${infos}</dl>` : ''}\n    <div class=\"fil\">${bulles}</div>\n    ${f.opt_out ? '<p class=\"alerte\">Ce prospect a demandé à ne plus recevoir de messages.</p>'\n      : fenetre ? `<form method=\"post\" action=\"jyvis-action\" class=\"envoi\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\"><input type=\"hidden\" name=\"action\" value=\"repondre\">\n          <textarea name=\"texte\" rows=\"3\" required placeholder=\"Votre réponse (l’agent IA s’arrête pour ce prospect)\"></textarea><button>Envoyer</button></form>`\n      : '<p class=\"alerte\">Plus de 24 h depuis son dernier message : WhatsApp n’autorise plus de message libre. Appelez le prospect ou attendez qu’il réécrive.</p>'}`;\n}\n\nconst html = `<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>JyVis – Prospects WhatsApp</title>\n<style>\n:root{--bleu:#0b2a4a;--fond:#f4f6f9;--carte:#fff;--texte:#1b2430;--gris:#6b7685;--bord:#dde3ea;--vert:#1f8f5f;--orange:#c97a12;--rouge:#c0392b}\n@media (prefers-color-scheme:dark){:root{--fond:#0f141a;--carte:#18202a;--texte:#e6ebf1;--gris:#94a0ae;--bord:#2a3542}}\n*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--fond);color:var(--texte)}\nheader{background:var(--bleu);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}\nheader h1{margin:0;font-size:18px}.stats{display:flex;gap:16px;flex-wrap:wrap;font-size:13px}.stats b{font-size:17px;display:block}\nmain{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px;padding:16px;max-width:1300px;margin:auto}\n.liste,.detail{background:var(--carte);border:1px solid var(--bord);border-radius:10px}\n.liste{max-height:calc(100vh - 120px);overflow:auto}.ligne{display:block;padding:10px 14px;border-bottom:1px solid var(--bord);color:inherit;text-decoration:none}\n.ligne.actif,.ligne:hover{background:rgba(11,42,74,.08)}.nom{font-weight:600;margin-right:6px}.meta{display:block;color:var(--gris);font-size:13px}\n.pastille{font-size:11px;padding:1px 7px;border-radius:9px;color:#fff;background:var(--gris);margin-right:4px}.chaud{background:var(--rouge)}.tiede{background:var(--orange)}.froid{background:#5b7a99}.humain{background:var(--vert)}.stop{background:#000}\n.detail{padding:16px;min-width:0}.entete{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.entete h2{margin:0}.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}\nbutton,select{font:inherit;padding:7px 12px;border-radius:7px;border:1px solid var(--bord);background:var(--bleu);color:#fff;cursor:pointer}select{background:var(--carte);color:var(--texte)}\n.resume{background:rgba(11,42,74,.06);padding:10px;border-radius:8px}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;font-size:14px}dt{color:var(--gris)}dd{margin:0}\n.fil{display:flex;flex-direction:column;gap:8px;margin:16px 0}.bulle{max-width:80%;padding:8px 12px;border-radius:10px;word-wrap:break-word}.in{align-self:flex-start;background:rgba(127,127,127,.12)}.out{align-self:flex-end;background:rgba(31,143,95,.15)}\n.qui{font-size:12px;color:var(--gris)}.envoi{display:flex;gap:8px}.envoi textarea{flex:1;font:inherit;padding:8px;border-radius:7px;border:1px solid var(--bord);background:var(--carte);color:var(--texte)}\n.alerte{background:rgba(192,57,43,.12);padding:10px;border-radius:8px}.vide{color:var(--gris);padding:24px;text-align:center}\n@media (max-width:760px){main{grid-template-columns:1fr;padding:12px}.liste{max-height:40vh}.bulle{max-width:92%}.envoi{flex-direction:column}}\n</style></head><body>\n<header><h1>JyVis Assurances · Prospects WhatsApp</h1>\n<div class=\"stats\"><span><b>${s.total ?? 0}</b>prospects</span><span><b>${s.semaine ?? 0}</b>cette semaine</span><span><b>${s.chauds ?? 0}</b>chauds</span><span><b>${s.a_reprendre ?? 0}</b>à reprendre</span><span><b>${s.convertis ?? 0}</b>convertis</span></div></header>\n${ctx.erreur ? '<p class=\"alerte\" style=\"margin:16px\">Le message n’a pas pu être envoyé par WhatsApp (fenêtre de 24 h dépassée ou numéro invalide).</p>' : ''}\n<main><nav class=\"liste\">${lignes}</nav><section class=\"detail\">${detail}</section></main>\n</body></html>`;\nreturn [{ json: { html } }];\n"
+        "jsCode": "const d = $input.first().json;\nconst ctx = $('Contrôle d’accès').first().json;\nconst jeton = require('crypto').createHmac('sha256', String($env.TABLEAU_MOT_DE_PASSE || '')).update('jyvis-action').digest('hex');\nconst e = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst date = s => s ? new Date(s).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }) : '';\nconst STATUTS = { nouveau: 'Nouveau', en_cours: 'En cours', qualifie: 'Qualifié', rdv: 'RDV', devis_envoye: 'Devis envoyé', converti: 'Converti', perdu: 'Perdu' };\nconst s = d.stats || {};\nconst lignes = (d.prospects || []).map(p => `\n  <a class=\"ligne ${String(p.id) === ctx.id ? 'actif' : ''}\" href=\"?id=${p.id}\">\n    <span class=\"nom\">${e(p.nom || '+' + p.wa_id)}</span>\n    <span class=\"pastille ${e(p.score)}\">${e({ tiede: 'tiède' }[p.score] || p.score)}</span>\n    ${p.mode === 'humain' ? '<span class=\"pastille humain\">à reprendre</span>' : ''}\n    ${p.opt_out ? '<span class=\"pastille stop\">STOP</span>' : ''}\n    ${p.source ? `<span class=\"pastille campagne\">${e(p.source)}</span>` : p.origine === 'site' ? '<span class=\"pastille campagne\">site</span>' : ''}\n    <span class=\"meta\">${e(p.produit || '—')} · ${e(STATUTS[p.statut] || p.statut)} · ${date(p.maj_le)}</span>\n  </a>`).join('') || '<p class=\"vide\">Aucun prospect pour le moment.</p>';\n\nconst lignesCampagnes = (d.campagnes || []).map(c => `<tr><td>${e(c.source)}</td><td>${c.total}</td><td>${c.qualifies}</td><td>${c.convertis}</td><td>${c.total ? Math.round(100 * c.convertis / c.total) : 0} %</td></tr>`).join('');\nlet detail = `<h2>Campagnes – 30 derniers jours</h2>\n  ${lignesCampagnes ? `<table><tr><th>Provenance</th><th>Prospects</th><th>Qualifiés</th><th>Convertis</th><th>Taux</th></tr>${lignesCampagnes}</table>` : '<p class=\"vide\">Aucun prospect sur la période.</p>'}\n  <p class=\"meta\">Conversions à importer dans Google Ads : <a href=\"jyvis-conversions\">télécharger le fichier CSV</a></p>\n  <p class=\"vide\">Sélectionnez un prospect pour voir la conversation.</p>`;\nconst f = d.fiche;\nif (f) {\n  const fenetre = f.dernier_entrant && (Date.now() - new Date(f.dernier_entrant).getTime()) < 24 * 3600 * 1000;\n  const infos = Object.entries(f.infos || {}).map(([k, v]) => `<dt>${e(k)}</dt><dd>${e(v)}</dd>`).join('');\n  const bulles = (d.messages || []).map(m => `\n    <div class=\"bulle ${m.sens === 'entrant' || m.sens === 'site' ? 'in' : 'out'}\">\n      <div class=\"qui\">${{ entrant: e(f.nom || 'Prospect'), site: 'Formulaire du site', agent: 'Agent IA', conseiller: 'Conseiller', relance: 'Relance auto', campagne: 'Campagne' }[m.sens] || e(m.sens)} · ${date(m.cree_le)}</div>\n      ${e(m.texte).replace(/\\n/g, '<br>')}\n    </div>`).join('');\n  const optionsStatut = Object.entries(STATUTS).map(([k, v]) => `<option value=\"${k}\" ${f.statut === k ? 'selected' : ''}>${v}</option>`).join('');\n  detail = `\n    <div class=\"entete\">\n      <div><h2>${e(f.nom || 'Prospect')}</h2><a href=\"https://wa.me/${e(f.wa_id)}\" target=\"_blank\" rel=\"noopener\">+${e(f.wa_id)}</a></div>\n      <div class=\"actions\">\n        <form method=\"post\" action=\"jyvis-action\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\"><input type=\"hidden\" name=\"jeton\" value=\"${jeton}\">\n          ${f.mode === 'ia'\n            ? '<button name=\"action\" value=\"humain\">Reprendre la main</button>'\n            : '<button name=\"action\" value=\"ia\">Rendre la main à l’agent IA</button>'}\n        </form>\n        <form method=\"post\" action=\"jyvis-action\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\"><input type=\"hidden\" name=\"jeton\" value=\"${jeton}\"><input type=\"hidden\" name=\"action\" value=\"statut\">\n          <select name=\"statut\" onchange=\"this.form.submit()\">${optionsStatut}</select>\n        </form>\n      </div>\n    </div>\n    <p class=\"resume\">${e(f.resume || 'Pas encore de résumé.')}</p>\n    <p class=\"meta\">Provenance : ${e(f.origine === 'site' ? 'formulaire du site' : 'WhatsApp')}${f.source ? ' · campagne ' + e(f.source) : ''}${f.gclid ? ' · clic Google Ads' : ''}${f.email ? ' · ' + e(f.email) : ''}</p>\n    ${infos ? `<dl>${infos}</dl>` : ''}\n    <div class=\"fil\">${bulles}</div>\n    ${f.opt_out ? '<p class=\"alerte\">Ce prospect a demandé à ne plus recevoir de messages.</p>'\n      : fenetre ? `<form method=\"post\" action=\"jyvis-action\" class=\"envoi\"><input type=\"hidden\" name=\"id\" value=\"${f.id}\"><input type=\"hidden\" name=\"jeton\" value=\"${jeton}\"><input type=\"hidden\" name=\"action\" value=\"repondre\">\n          <textarea name=\"texte\" rows=\"3\" required placeholder=\"Votre réponse (l’agent IA s’arrête pour ce prospect)\"></textarea><button>Envoyer</button></form>`\n      : '<p class=\"alerte\">Plus de 24 h depuis son dernier message : WhatsApp n’autorise plus de message libre. Appelez le prospect ou attendez qu’il réécrive.</p>'}`;\n}\n\nconst html = `<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>JyVis – Prospects WhatsApp</title>\n<style>\n:root{--bleu:#0b2a4a;--fond:#f4f6f9;--carte:#fff;--texte:#1b2430;--gris:#6b7685;--bord:#dde3ea;--vert:#1f8f5f;--orange:#c97a12;--rouge:#c0392b}\n@media (prefers-color-scheme:dark){:root{--fond:#0f141a;--carte:#18202a;--texte:#e6ebf1;--gris:#94a0ae;--bord:#2a3542}}\n*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--fond);color:var(--texte)}\nheader{background:var(--bleu);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}\nheader h1{margin:0;font-size:18px}.stats{display:flex;gap:16px;flex-wrap:wrap;font-size:13px}.stats b{font-size:17px;display:block}\nmain{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px;padding:16px;max-width:1300px;margin:auto}\n.liste,.detail{background:var(--carte);border:1px solid var(--bord);border-radius:10px}\n.liste{max-height:calc(100vh - 120px);overflow:auto}.ligne{display:block;padding:10px 14px;border-bottom:1px solid var(--bord);color:inherit;text-decoration:none}\n.ligne.actif,.ligne:hover{background:rgba(11,42,74,.08)}.nom{font-weight:600;margin-right:6px}.meta{display:block;color:var(--gris);font-size:13px}\n.pastille{display:inline-block;white-space:nowrap;margin-bottom:2px;font-size:11px;padding:1px 7px;border-radius:9px;color:#fff;background:var(--gris);margin-right:4px}.chaud{background:var(--rouge)}.tiede{background:var(--orange)}.froid{background:#5b7a99}.humain{background:var(--vert)}.stop{background:#000}\n.detail{padding:16px;min-width:0}.entete{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.entete h2{margin:0}.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}\nbutton,select{font:inherit;padding:7px 12px;border-radius:7px;border:1px solid var(--bord);background:var(--bleu);color:#fff;cursor:pointer}select{background:var(--carte);color:var(--texte)}\n.resume{background:rgba(11,42,74,.06);padding:10px;border-radius:8px}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;font-size:14px}dt{color:var(--gris)}dd{margin:0}\n.fil{display:flex;flex-direction:column;gap:8px;margin:16px 0}.bulle{max-width:80%;padding:8px 12px;border-radius:10px;word-wrap:break-word}.in{align-self:flex-start;background:rgba(127,127,127,.12)}.out{align-self:flex-end;background:rgba(31,143,95,.15)}\n.qui{font-size:12px;color:var(--gris)}.envoi{display:flex;gap:8px}.envoi textarea{flex:1;font:inherit;padding:8px;border-radius:7px;border:1px solid var(--bord);background:var(--carte);color:var(--texte)}\n.campagne{background:#6a3fb5}table{border-collapse:collapse;width:100%;margin:8px 0 12px;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bord)}th{color:var(--gris);font-weight:600}\n.alerte{background:rgba(192,57,43,.12);padding:10px;border-radius:8px}.vide{color:var(--gris);padding:24px;text-align:center}\n@media (max-width:760px){main{grid-template-columns:1fr;padding:12px}.liste{max-height:40vh}.bulle{max-width:92%}.envoi{flex-direction:column}}\n</style></head><body>\n<header><h1><a href=\"jyvis\" style=\"color:inherit;text-decoration:none\">JyVis Assurances · Prospects</a></h1>\n<div class=\"stats\"><span><b>${s.total ?? 0}</b>prospects</span><span><b>${s.semaine ?? 0}</b>cette semaine</span><span><b>${s.chauds ?? 0}</b>chauds</span><span><b>${s.a_reprendre ?? 0}</b>à reprendre</span><span><b>${s.convertis ?? 0}</b>convertis</span></div></header>\n${ctx.erreur ? '<p class=\"alerte\" style=\"margin:16px\">Le message n’a pas pu être envoyé par WhatsApp (fenêtre de 24 h dépassée ou numéro invalide).</p>' : ''}\n<main><nav class=\"liste\">${lignes}</nav><section class=\"detail\">${detail}</section></main>\n</body></html>`;\nreturn [{ json: { html } }];\n"
       }
     },
     {
@@ -185,7 +185,7 @@
         400
       ],
       "parameters": {
-        "jsCode": "// Accès protégé par identifiant / mot de passe (variables TABLEAU_UTILISATEUR et TABLEAU_MOT_DE_PASSE).\nconst crypto = require('crypto');\nfunction egal(a, b) {\n  const x = crypto.createHash('sha256').update(String(a)).digest();\n  const y = crypto.createHash('sha256').update(String(b)).digest();\n  return crypto.timingSafeEqual(x, y);\n}\nconst j = $input.first().json;\nconst h = String(j.headers?.authorization || '');\nlet ok = false;\nif ($env.TABLEAU_MOT_DE_PASSE && h.startsWith('Basic ')) {\n  const [u, ...reste] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':');\n  ok = egal(u, $env.TABLEAU_UTILISATEUR || 'jyvis') & egal(reste.join(':'), $env.TABLEAU_MOT_DE_PASSE);\n}\n\n// Protection contre les requêtes envoyées depuis un autre site.\nconst origine = String(j.headers?.origin || j.headers?.referer || '');\nif (!origine.startsWith('https://' + $env.N8N_HOST)) ok = false;\nconst b = j.body || {};\nconst id = /^\\d{1,18}$/.test(String(b.id || '')) ? String(b.id) : '';\nconst action = ['repondre', 'humain', 'ia', 'statut'].includes(b.action) ? b.action : '';\nconst statut = ['nouveau', 'en_cours', 'qualifie', 'rdv', 'devis_envoye', 'converti', 'perdu'].includes(b.statut) ? b.statut : '';\nconst texte = String(b.texte || '').trim().slice(0, 4000);\nif (!id || !action || (action === 'repondre' && !texte) || (action === 'statut' && !statut)) ok = false;\nreturn [{ json: { ok: !!ok, id, action, statut, texte } }];\n"
+        "jsCode": "// Accès protégé par identifiant / mot de passe (variables TABLEAU_UTILISATEUR et TABLEAU_MOT_DE_PASSE).\nconst crypto = require('crypto');\nfunction egal(a, b) {\n  const x = crypto.createHash('sha256').update(String(a)).digest();\n  const y = crypto.createHash('sha256').update(String(b)).digest();\n  return crypto.timingSafeEqual(x, y);\n}\nconst j = $input.first().json;\nconst h = String(j.headers?.authorization || '');\nlet ok = false;\nif ($env.TABLEAU_MOT_DE_PASSE && h.startsWith('Basic ')) {\n  const [u, ...reste] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':');\n  ok = egal(u, $env.TABLEAU_UTILISATEUR || 'jyvis') & egal(reste.join(':'), $env.TABLEAU_MOT_DE_PASSE);\n}\n\nconst b = j.body || {};\n// Protection contre les requêtes envoyées depuis un autre site : jeton secret présent dans les formulaires.\n// (n8n isole les pages servies par webhook : le navigateur envoie « Origin: null », on ne peut pas s'y fier.)\nconst jeton = crypto.createHmac('sha256', String($env.TABLEAU_MOT_DE_PASSE || '')).update('jyvis-action').digest('hex');\nif (!egal(String(b.jeton || ''), jeton)) ok = false;\nconst id = /^\\d{1,18}$/.test(String(b.id || '')) ? String(b.id) : '';\nconst action = ['repondre', 'humain', 'ia', 'statut'].includes(b.action) ? b.action : '';\nconst statut = ['nouveau', 'en_cours', 'qualifie', 'rdv', 'devis_envoye', 'converti', 'perdu'].includes(b.statut) ? b.statut : '';\nconst texte = String(b.texte || '').trim().slice(0, 4000);\nif (!id || !action || (action === 'repondre' && !texte) || (action === 'statut' && !statut)) ok = false;\nreturn [{ json: { ok: !!ok, id, action, statut, texte } }];\n"
       }
     },
     {
@@ -480,6 +480,164 @@
         },
         "responseBody": "Accès refusé"
       }
+    },
+    {
+      "id": "a326de67-b908-5ef0-8d98-c5758820e461",
+      "name": "Export des conversions",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        800
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "jyvis-conversions",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "4402e3d2-77a8-57aa-afd6-a08bed17a059"
+    },
+    {
+      "id": "0d2f738c-cf30-5aa4-9218-3e6046bf856c",
+      "name": "Contrôle d’accès (export)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// Accès protégé par identifiant / mot de passe (variables TABLEAU_UTILISATEUR et TABLEAU_MOT_DE_PASSE).\nconst crypto = require('crypto');\nfunction egal(a, b) {\n  const x = crypto.createHash('sha256').update(String(a)).digest();\n  const y = crypto.createHash('sha256').update(String(b)).digest();\n  return crypto.timingSafeEqual(x, y);\n}\nconst j = $input.first().json;\nconst h = String(j.headers?.authorization || '');\nlet ok = false;\nif ($env.TABLEAU_MOT_DE_PASSE && h.startsWith('Basic ')) {\n  const [u, ...reste] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':');\n  ok = egal(u, $env.TABLEAU_UTILISATEUR || 'jyvis') & egal(reste.join(':'), $env.TABLEAU_MOT_DE_PASSE);\n}\nreturn [{ json: { ok: !!ok } }];\n"
+      }
+    },
+    {
+      "id": "b3e11304-29a0-51b8-8f23-02a94a830f7a",
+      "name": "Export autorisé ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        800
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "786caf23-7dae-53d7-9413-d2bc7656ee94",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "fa480382-496c-5fea-a708-07a9f27c3319",
+      "name": "Conversions Google Ads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        700
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT gclid, 'qualifie' AS etape, maj_le FROM prospects\n WHERE gclid IS NOT NULL AND statut IN ('qualifie', 'rdv', 'devis_envoye', 'converti') AND cree_le > now() - interval '85 days'\nUNION ALL\nSELECT gclid, 'converti', maj_le FROM prospects\n WHERE gclid IS NOT NULL AND statut = 'converti' AND cree_le > now() - interval '85 days'\nORDER BY 3;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "f3d2d9f2-318d-5161-b93a-0b5cd3493f88",
+      "name": "Fichier CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        700
+      ],
+      "parameters": {
+        "jsCode": "// Format « Importer des conversions depuis des clics » de Google Ads.\nconst noms = { qualifie: $env.GOOGLE_ADS_CONVERSION_QUALIFIE || 'Prospect qualifié', converti: $env.GOOGLE_ADS_CONVERSION_CLIENT || 'Client signé' };\nconst f = d => new Date(d).toLocaleString('sv-SE', { timeZone: 'Europe/Paris' });\nconst lignes = ['Parameters:TimeZone=Europe/Paris', 'Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency'];\nfor (const { json: r } of $input.all()) if (r.gclid) lignes.push([r.gclid, noms[r.etape], f(r.maj_le), '', 'EUR'].join(','));\nreturn [{ json: { csv: lignes.join('\\r\\n') + '\\r\\n' } }];\n"
+      }
+    },
+    {
+      "id": "3821719f-6cd5-5130-8481-8a99c82afdb1",
+      "name": "Télécharger",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        700
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/csv; charset=utf-8"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "attachment; filename=\"conversions-google-ads.csv\""
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        },
+        "responseBody": "={{ $json.csv }}"
+      }
+    },
+    {
+      "id": "c44757be-27b1-56f6-a6b3-58f901abf800",
+      "name": "Refuser l’export",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        920
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "WWW-Authenticate",
+                "value": "Basic realm=\"JyVis Assurances\", charset=\"UTF-8\""
+              }
+            ]
+          }
+        },
+        "responseBody": "Accès refusé"
+      }
     }
   ],
   "connections": {
@@ -670,6 +828,68 @@
         [
           {
             "node": "Retour à la fiche",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export des conversions": {
+      "main": [
+        [
+          {
+            "node": "Contrôle d’accès (export)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contrôle d’accès (export)": {
+      "main": [
+        [
+          {
+            "node": "Export autorisé ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export autorisé ?": {
+      "main": [
+        [
+          {
+            "node": "Conversions Google Ads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refuser l’export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversions Google Ads": {
+      "main": [
+        [
+          {
+            "node": "Fichier CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fichier CSV": {
+      "main": [
+        [
+          {
+            "node": "Télécharger",
             "type": "main",
             "index": 0
           }

@@ -31,3 +31,10 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS messages_prospect_idx ON messages (prospect_id, cree_le);
 CREATE INDEX IF NOT EXISTS prospects_maj_idx ON prospects (maj_le DESC);
+
+-- Provenance des prospects (campagnes Google Ads, site web…)
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS origine TEXT NOT NULL DEFAULT 'whatsapp'; -- whatsapp ou site
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS source  TEXT;  -- code de campagne (ex. GA-DECENNALE)
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS gclid   TEXT;  -- identifiant de clic Google Ads
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS email   TEXT;
+CREATE INDEX IF NOT EXISTS prospects_source_idx ON prospects (source);

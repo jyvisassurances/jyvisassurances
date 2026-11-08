@@ -1,0 +1,406 @@
+{
+  "id": "jyvisWaSiteLead01",
+  "name": "JyVis – Prospects du site",
+  "active": false,
+  "nodes": [
+    {
+      "id": "ad053764-6ca2-54c5-a542-ba9fb429c51e",
+      "name": "Demande du site",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jyvis-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "77e3ea8c-59ff-5c65-bc96-442a50ed25dc"
+    },
+    {
+      "id": "9acb7e3d-04b7-5671-9096-ed83db9faa47",
+      "name": "Contrôler la demande",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Appel serveur à serveur depuis le site : en-tête « x-jyvis-cle » = LEADS_CLE.\nconst crypto = require('crypto');\nconst j = $input.first().json;\nconst cle = String(j.headers?.['x-jyvis-cle'] || '');\nconst attendu = String($env.LEADS_CLE || '');\nconst h = v => crypto.createHash('sha256').update(v).digest();\nconst ok = !!attendu && crypto.timingSafeEqual(h(cle), h(attendu));\nconst b = j.body || {};\nconst txt = (v, n) => String(v ?? '').trim().slice(0, n);\n// Numéro au format international sans « + » : 06… -> 336…, 0690… / 0590… (Guadeloupe) -> 590690…\nlet tel = String(b.telephone || '').replace(/[^\\d+]/g, '');\nif (tel.startsWith('+')) tel = tel.slice(1);\nelse if (tel.startsWith('00')) tel = tel.slice(2);\nelse if (/^0(590|690|691)\\d{6}$/.test(tel)) tel = '590' + tel.slice(1);\nelse if (/^0[1-9]\\d{8}$/.test(tel)) tel = '33' + tel.slice(1);\nconst valide = /^\\d{8,15}$/.test(tel);\nconst produits = ['auto', 'moto', 'habitation', 'rc_pro', 'decennale', 'multirisque_pro', 'cyber', 'sante', 'prevoyance', 'autre'];\nlet produit = txt(b.produit, 40).toLowerCase().replace(/[-\\s]/g, '_');\nif (produit === 'rc_decennale') produit = 'decennale';\nif (!produits.includes(produit)) produit = '';\nconst infos = {};\nif (b.details && typeof b.details === 'object') for (const [k, v] of Object.entries(b.details).slice(0, 40)) infos[txt(k, 60)] = txt(typeof v === 'object' ? JSON.stringify(v) : v, 500);\nconst nom = txt(b.nom, 120), email = txt(b.email, 200), message = txt(b.message, 2000);\nconst lignes = [produit && 'Produit : ' + produit, message, ...Object.entries(infos).map(([k, v]) => k + ' : ' + v)].filter(Boolean);\nreturn [{ json: {\n  ok: ok && valide,\n  code: ok ? (valide ? 200 : 400) : 401,\n  wa_id: tel, nom, email, produit, infos,\n  texte: lignes.join('\\n') || 'Demande de devis',\n  source: txt(b.source || b.utm_campaign, 60).toUpperCase().replace(/[^A-Z0-9_-]/g, '') ,\n  gclid: txt(b.gclid, 200).replace(/[^\\w-]/g, ''),\n  consentement: b.consentement_whatsapp === true || b.consentement_whatsapp === 'true' || b.consentement_whatsapp === 'on',\n} }];\n"
+      }
+    },
+    {
+      "id": "a74be887-c82a-5318-a931-2216860ef212",
+      "name": "Demande valide ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "543f826b-618d-57e1-87dc-ba6d2bc6db42",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "f0efa377-555a-55a0-a1ce-3f69a0b1f0eb",
+      "name": "Refuser",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        160
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "options": {
+          "responseCode": "={{ $json.code }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "responseBody": "={{ JSON.stringify({ ok: false, erreur: $json.code === 401 ? \"clé invalide\" : \"téléphone invalide\" }) }}"
+      }
+    },
+    {
+      "id": "e058b761-f08d-59fb-8ee3-e3da0d589a74",
+      "name": "Enregistrer le prospect",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -40
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH p AS (\n  INSERT INTO prospects (wa_id, nom, email, produit, infos, origine, source, gclid, score, statut, resume)\n  VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5::jsonb, 'site', NULLIF($6, ''), NULLIF($7, ''), 'tiede', 'nouveau',\n          'Demande de devis via le site' || COALESCE(' (' || NULLIF($4, '') || ')', ''))\n  ON CONFLICT (wa_id) DO UPDATE SET\n    nom = COALESCE(prospects.nom, EXCLUDED.nom),\n    email = COALESCE(EXCLUDED.email, prospects.email),\n    produit = COALESCE(EXCLUDED.produit, prospects.produit),\n    infos = prospects.infos || EXCLUDED.infos,\n    source = COALESCE(prospects.source, EXCLUDED.source),\n    gclid = COALESCE(EXCLUDED.gclid, prospects.gclid),\n    statut = CASE WHEN prospects.statut IN ('perdu') THEN 'nouveau' ELSE prospects.statut END,\n    maj_le = now()\n  RETURNING id, wa_id, nom, produit, infos, resume, score, opt_out, dernier_entrant\n), m AS (\n  INSERT INTO messages (prospect_id, sens, texte) SELECT id, 'site', $8 FROM p\n)\nSELECT p.*, p.id AS prospect_id,\n       $9::boolean AND NOT p.opt_out AND $10 <> '' AS envoyer_modele\nFROM p;",
+        "options": {
+          "queryReplacement": "={{ [$json.wa_id, $json.nom, $json.email, $json.produit, JSON.stringify($json.infos), $json.source, $json.gclid, $json.texte, $json.consentement, $env.WHATSAPP_MODELE_BIENVENUE || ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    },
+    {
+      "id": "5ded1109-d649-54d8-82f9-8b6f2ee3dd3b",
+      "name": "Confirmer au site",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        -40
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "responseBody": "={{ JSON.stringify({ ok: true, prospect: $json.prospect_id }) }}"
+      }
+    },
+    {
+      "id": "5f6cd540-46f1-5c25-9096-60b235aa8c3f",
+      "name": "Préparer l’alerte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const echap = s => String(s ?? '').replace(/[&<>\"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nreturn $input.all().map(({ json: p }) => {\n  const infos = Object.entries(p.infos || {}).map(([k, v]) => `<li><b>${echap(k)}</b> : ${echap(v)}</li>`).join('');\n  const lien = `https://${$env.N8N_HOST}/webhook/jyvis?id=${p.id}`;\n  return { json: {\n    sujet: `[JyVis WhatsApp] Demande de devis du site : ${p.nom || '+' + p.wa_id}`,\n    html: `<p><b>${echap(p.nom || 'Prospect')}</b> (+${echap(p.wa_id)}) — ${echap(p.produit || 'produit non précisé')}, score <b>${echap(p.score)}</b>.</p>\n<p>${echap(p.resume)}</p><ul>${infos}</ul><p><a href=\"${lien}\">Ouvrir la conversation</a></p>`,\n  } };\n});\n"
+      }
+    },
+    {
+      "id": "6088232b-f7f1-557f-ba91-bc3f71c1d503",
+      "name": "E-mail au conseiller",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        120
+      ],
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM || $env.SMTP_USER }}",
+        "toEmail": "={{ $env.CONSEILLER_EMAIL }}",
+        "subject": "={{ $json.sujet }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "jyvisSmtp00000001",
+          "name": "JyVis SMTP"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ae6f5e6c-cd71-5ecd-a4d1-a32f7ded8a4b",
+      "name": "Message WhatsApp de bienvenue ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        -200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ed042bba-59a0-5f74-b0ab-cec580ca7fd4",
+              "leftValue": "={{ $json.envoyer_modele === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "d8ee796e-0a0a-5712-aacb-f01fca83f605",
+      "name": "Préparer le modèle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -200
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map(({ json: p }) => ({ json: {\n  prospect_id: p.prospect_id, wa_id: p.wa_id,\n  corps: {\n    messaging_product: 'whatsapp', to: p.wa_id, type: 'template',\n    template: {\n      name: $env.WHATSAPP_MODELE_BIENVENUE,\n      language: { code: $env.WHATSAPP_MODELE_LANGUE || 'fr' },\n      components: [{ type: 'body', parameters: [{ type: 'text', text: String(p.nom || '').split(' ')[0] || 'Madame, Monsieur' }] }],\n    },\n  },\n} }));\n"
+      }
+    },
+    {
+      "id": "69733439-11e5-594c-8508-e6e377652c09",
+      "name": "Envoyer le modèle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $env.GRAPH_API_VERSION || 'v23.0' }}/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.corps) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ec6099de-ac0d-56b8-b73a-c936b9571120",
+      "name": "Noter l’envoi du modèle",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1920,
+        -200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH u AS (\n  UPDATE prospects SET dernier_sortant = CASE WHEN $2::boolean THEN now() ELSE dernier_sortant END, maj_le = now()\n  WHERE id = $1::bigint RETURNING id\n)\nINSERT INTO messages (prospect_id, sens, texte)\nSELECT id, 'campagne', CASE WHEN $2::boolean THEN '' ELSE '[NON ENVOYÉ] ' END\n       || 'Modèle WhatsApp « ' || $3 || ' » envoyé (réponse attendue du prospect)' FROM u\nRETURNING prospect_id;",
+        "options": {
+          "queryReplacement": "={{ [$('Préparer le modèle').item.json.prospect_id, !!($json.messages && $json.messages[0] && $json.messages[0].id), $env.WHATSAPP_MODELE_BIENVENUE] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jyvisPostgres0001",
+          "name": "JyVis Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Demande du site": {
+      "main": [
+        [
+          {
+            "node": "Contrôler la demande",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contrôler la demande": {
+      "main": [
+        [
+          {
+            "node": "Demande valide ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demande valide ?": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer le prospect",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refuser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer le prospect": {
+      "main": [
+        [
+          {
+            "node": "Confirmer au site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmer au site": {
+      "main": [
+        [
+          {
+            "node": "Message WhatsApp de bienvenue ?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Préparer l’alerte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer l’alerte": {
+      "main": [
+        [
+          {
+            "node": "E-mail au conseiller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message WhatsApp de bienvenue ?": {
+      "main": [
+        [
+          {
+            "node": "Préparer le modèle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer le modèle": {
+      "main": [
+        [
+          {
+            "node": "Envoyer le modèle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envoyer le modèle": {
+      "main": [
+        [
+          {
+            "node": "Noter l’envoi du modèle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
+}

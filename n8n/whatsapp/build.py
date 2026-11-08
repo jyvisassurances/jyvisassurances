@@ -135,7 +135,7 @@ SCHEMA = {
     "type": "object",
     "properties": {
         "reponse": {"type": "string"},
-        "produit": {"type": "string", "enum": ["auto", "moto", "habitation", "rc_pro", "decennale", "sante", "prevoyance", "autre", "inconnu"]},
+        "produit": {"type": "string", "enum": ["auto", "moto", "habitation", "rc_pro", "decennale", "multirisque_pro", "cyber", "sante", "prevoyance", "autre", "inconnu"]},
         "nom": {"type": "string"},
         "infos": {"type": "array", "items": {
             "type": "object",
@@ -202,6 +202,7 @@ for (const entree of corps.entry || []) {
         nom: noms[m.from] || '',
         texte,
         message_id: String(m.id),
+        source: (texte.match(/\br[ée]f(?:[ée]rence)?\s*[.:]?\s*([A-Za-z0-9_-]{2,40})/i) || [])[1]?.toUpperCase() || '',
         stop: /^\s*(stop|arr[eê]t|d[ée]sinscription)\s*$/i.test(texte),
         start: /^\s*(start|reprendre)\s*$/i.test(texte),
       } });
@@ -213,10 +214,11 @@ return sorties;
 
 SQL_ENREGISTRER = """
 WITH p AS (
-  INSERT INTO prospects (wa_id, nom, dernier_entrant, opt_out)
-  VALUES ($1, NULLIF($2, ''), now(), $5::boolean)
+  INSERT INTO prospects (wa_id, nom, dernier_entrant, opt_out, source)
+  VALUES ($1, NULLIF($2, ''), now(), $5::boolean, NULLIF($7, ''))
   ON CONFLICT (wa_id) DO UPDATE SET
     nom = COALESCE(prospects.nom, EXCLUDED.nom),
+    source = COALESCE(prospects.source, EXCLUDED.source),
     dernier_entrant = now(),
     relances = 0,
     opt_out = CASE WHEN $6::boolean THEN false ELSE prospects.opt_out OR EXCLUDED.opt_out END,
@@ -274,8 +276,11 @@ for (const { json: p } of $input.all()) {
 
   const messages = [];
   for (const m of p.historique || []) {
-    const role = m.sens === 'entrant' ? 'user' : 'assistant';
-    const texte = m.sens === 'conseiller' ? '[Message du conseiller] ' + m.texte : m.texte;
+    if (String(m.texte).startsWith('[NON ENVOYÉ]')) continue;   // jamais reçu par le prospect
+    if (m.sens === 'campagne') m.texte = '[Message WhatsApp automatique de bienvenue, envoyé après la demande faite sur le site]';
+    const role = m.sens === 'entrant' || m.sens === 'site' ? 'user' : 'assistant';
+    const texte = m.sens === 'conseiller' ? '[Message du conseiller] ' + m.texte
+      : m.sens === 'site' ? '[Demande envoyée depuis le site jyvis-assurances.com] ' + m.texte : m.texte;
     const dernier = messages[messages.length - 1];
     if (dernier && dernier.role === role) dernier.content += '\n' + texte;
     else messages.push({ role, content: texte });
@@ -407,7 +412,7 @@ agent = workflow(
              parameters={"httpMethod": "POST", "path": "whatsapp", "responseMode": "onReceived", "options": {"rawBody": True}}),
         code("Contrôler et extraire", (240, 300), JS_EXTRAIRE),
         sql("Enregistrer le message reçu", (480, 300), SQL_ENREGISTRER,
-            "[$json.wa_id, $json.nom, $json.texte, $json.message_id, $json.stop, $json.start]"),
+            "[$json.wa_id, $json.nom, $json.texte, $json.message_id, $json.stop, $json.start, $json.source]"),
         code("Trier", (720, 300), JS_TRIER),
         si("Réponse automatique ?", (960, 300), "$json.route === 'direct'"),
         node("Attendre la fin de saisie", "n8n-nodes-base.wait", 1.1, (1200, 420), {"amount": 8}),
@@ -553,10 +558,11 @@ return [{ json: { ok: !!ok, id, erreur: String(j.query?.erreur || '') } }];
 """
 
 SUITE_ACTION = r"""
-// Protection contre les requêtes envoyées depuis un autre site.
-const origine = String(j.headers?.origin || j.headers?.referer || '');
-if (!origine.startsWith('https://' + $env.N8N_HOST)) ok = false;
 const b = j.body || {};
+// Protection contre les requêtes envoyées depuis un autre site : jeton secret présent dans les formulaires.
+// (n8n isole les pages servies par webhook : le navigateur envoie « Origin: null », on ne peut pas s'y fier.)
+const jeton = crypto.createHmac('sha256', String($env.TABLEAU_MOT_DE_PASSE || '')).update('jyvis-action').digest('hex');
+if (!egal(String(b.jeton || ''), jeton)) ok = false;
 const id = /^\d{1,18}$/.test(String(b.id || '')) ? String(b.id) : '';
 const action = ['repondre', 'humain', 'ia', 'statut'].includes(b.action) ? b.action : '';
 const statut = ['nouveau', 'en_cours', 'qualifie', 'rdv', 'devis_envoye', 'converti', 'perdu'].includes(b.statut) ? b.statut : '';
@@ -568,7 +574,7 @@ return [{ json: { ok: !!ok, id, action, statut, texte } }];
 SQL_TABLEAU = """
 SELECT
   (SELECT COALESCE(json_agg(p ORDER BY p.maj_le DESC), '[]'::json) FROM (
-     SELECT id, wa_id, nom, produit, score, statut, mode, opt_out, resume, maj_le, dernier_entrant
+     SELECT id, wa_id, nom, produit, score, statut, mode, opt_out, resume, maj_le, dernier_entrant, origine, source
      FROM prospects ORDER BY maj_le DESC LIMIT 300) p) AS prospects,
   (SELECT row_to_json(x) FROM prospects x WHERE x.id = NULLIF($1, '')::bigint) AS fiche,
   (SELECT COALESCE(json_agg(m ORDER BY m.cree_le, m.id), '[]'::json)
@@ -578,12 +584,19 @@ SELECT
      'semaine', count(*) FILTER (WHERE cree_le > now() - interval '7 days'),
      'chauds', count(*) FILTER (WHERE score = 'chaud' AND statut NOT IN ('converti', 'perdu')),
      'a_reprendre', count(*) FILTER (WHERE mode = 'humain' AND statut NOT IN ('converti', 'perdu')),
-     'convertis', count(*) FILTER (WHERE statut = 'converti')) FROM prospects) AS stats;
+     'convertis', count(*) FILTER (WHERE statut = 'converti')) FROM prospects) AS stats,
+  (SELECT COALESCE(json_agg(c ORDER BY c.total DESC), '[]'::json) FROM (
+     SELECT COALESCE(source, CASE origine WHEN 'site' THEN 'Site (sans campagne)' ELSE 'WhatsApp direct' END) AS source,
+            count(*) AS total,
+            count(*) FILTER (WHERE statut IN ('qualifie', 'rdv', 'devis_envoye', 'converti')) AS qualifies,
+            count(*) FILTER (WHERE statut = 'converti') AS convertis
+     FROM prospects WHERE cree_le > now() - interval '30 days' GROUP BY 1) c) AS campagnes;
 """
 
 JS_PAGE = r"""
 const d = $input.first().json;
 const ctx = $('Contrôle d’accès').first().json;
+const jeton = require('crypto').createHmac('sha256', String($env.TABLEAU_MOT_DE_PASSE || '')).update('jyvis-action').digest('hex');
 const e = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const date = s => s ? new Date(s).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }) : '';
 const STATUTS = { nouveau: 'Nouveau', en_cours: 'En cours', qualifie: 'Qualifié', rdv: 'RDV', devis_envoye: 'Devis envoyé', converti: 'Converti', perdu: 'Perdu' };
@@ -594,17 +607,22 @@ const lignes = (d.prospects || []).map(p => `
     <span class="pastille ${e(p.score)}">${e({ tiede: 'tiède' }[p.score] || p.score)}</span>
     ${p.mode === 'humain' ? '<span class="pastille humain">à reprendre</span>' : ''}
     ${p.opt_out ? '<span class="pastille stop">STOP</span>' : ''}
+    ${p.source ? `<span class="pastille campagne">${e(p.source)}</span>` : p.origine === 'site' ? '<span class="pastille campagne">site</span>' : ''}
     <span class="meta">${e(p.produit || '—')} · ${e(STATUTS[p.statut] || p.statut)} · ${date(p.maj_le)}</span>
   </a>`).join('') || '<p class="vide">Aucun prospect pour le moment.</p>';
 
-let detail = '<div class="vide">Sélectionnez un prospect.</div>';
+const lignesCampagnes = (d.campagnes || []).map(c => `<tr><td>${e(c.source)}</td><td>${c.total}</td><td>${c.qualifies}</td><td>${c.convertis}</td><td>${c.total ? Math.round(100 * c.convertis / c.total) : 0} %</td></tr>`).join('');
+let detail = `<h2>Campagnes – 30 derniers jours</h2>
+  ${lignesCampagnes ? `<table><tr><th>Provenance</th><th>Prospects</th><th>Qualifiés</th><th>Convertis</th><th>Taux</th></tr>${lignesCampagnes}</table>` : '<p class="vide">Aucun prospect sur la période.</p>'}
+  <p class="meta">Conversions à importer dans Google Ads : <a href="jyvis-conversions">télécharger le fichier CSV</a></p>
+  <p class="vide">Sélectionnez un prospect pour voir la conversation.</p>`;
 const f = d.fiche;
 if (f) {
   const fenetre = f.dernier_entrant && (Date.now() - new Date(f.dernier_entrant).getTime()) < 24 * 3600 * 1000;
   const infos = Object.entries(f.infos || {}).map(([k, v]) => `<dt>${e(k)}</dt><dd>${e(v)}</dd>`).join('');
   const bulles = (d.messages || []).map(m => `
-    <div class="bulle ${m.sens === 'entrant' ? 'in' : 'out'}">
-      <div class="qui">${{ entrant: e(f.nom || 'Prospect'), agent: 'Agent IA', conseiller: 'Conseiller', relance: 'Relance auto' }[m.sens] || e(m.sens)} · ${date(m.cree_le)}</div>
+    <div class="bulle ${m.sens === 'entrant' || m.sens === 'site' ? 'in' : 'out'}">
+      <div class="qui">${{ entrant: e(f.nom || 'Prospect'), site: 'Formulaire du site', agent: 'Agent IA', conseiller: 'Conseiller', relance: 'Relance auto', campagne: 'Campagne' }[m.sens] || e(m.sens)} · ${date(m.cree_le)}</div>
       ${e(m.texte).replace(/\n/g, '<br>')}
     </div>`).join('');
   const optionsStatut = Object.entries(STATUTS).map(([k, v]) => `<option value="${k}" ${f.statut === k ? 'selected' : ''}>${v}</option>`).join('');
@@ -612,21 +630,22 @@ if (f) {
     <div class="entete">
       <div><h2>${e(f.nom || 'Prospect')}</h2><a href="https://wa.me/${e(f.wa_id)}" target="_blank" rel="noopener">+${e(f.wa_id)}</a></div>
       <div class="actions">
-        <form method="post" action="jyvis-action"><input type="hidden" name="id" value="${f.id}">
+        <form method="post" action="jyvis-action"><input type="hidden" name="id" value="${f.id}"><input type="hidden" name="jeton" value="${jeton}">
           ${f.mode === 'ia'
             ? '<button name="action" value="humain">Reprendre la main</button>'
             : '<button name="action" value="ia">Rendre la main à l’agent IA</button>'}
         </form>
-        <form method="post" action="jyvis-action"><input type="hidden" name="id" value="${f.id}"><input type="hidden" name="action" value="statut">
+        <form method="post" action="jyvis-action"><input type="hidden" name="id" value="${f.id}"><input type="hidden" name="jeton" value="${jeton}"><input type="hidden" name="action" value="statut">
           <select name="statut" onchange="this.form.submit()">${optionsStatut}</select>
         </form>
       </div>
     </div>
     <p class="resume">${e(f.resume || 'Pas encore de résumé.')}</p>
+    <p class="meta">Provenance : ${e(f.origine === 'site' ? 'formulaire du site' : 'WhatsApp')}${f.source ? ' · campagne ' + e(f.source) : ''}${f.gclid ? ' · clic Google Ads' : ''}${f.email ? ' · ' + e(f.email) : ''}</p>
     ${infos ? `<dl>${infos}</dl>` : ''}
     <div class="fil">${bulles}</div>
     ${f.opt_out ? '<p class="alerte">Ce prospect a demandé à ne plus recevoir de messages.</p>'
-      : fenetre ? `<form method="post" action="jyvis-action" class="envoi"><input type="hidden" name="id" value="${f.id}"><input type="hidden" name="action" value="repondre">
+      : fenetre ? `<form method="post" action="jyvis-action" class="envoi"><input type="hidden" name="id" value="${f.id}"><input type="hidden" name="jeton" value="${jeton}"><input type="hidden" name="action" value="repondre">
           <textarea name="texte" rows="3" required placeholder="Votre réponse (l’agent IA s’arrête pour ce prospect)"></textarea><button>Envoyer</button></form>`
       : '<p class="alerte">Plus de 24 h depuis son dernier message : WhatsApp n’autorise plus de message libre. Appelez le prospect ou attendez qu’il réécrive.</p>'}`;
 }
@@ -643,16 +662,17 @@ main{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px;padding
 .liste,.detail{background:var(--carte);border:1px solid var(--bord);border-radius:10px}
 .liste{max-height:calc(100vh - 120px);overflow:auto}.ligne{display:block;padding:10px 14px;border-bottom:1px solid var(--bord);color:inherit;text-decoration:none}
 .ligne.actif,.ligne:hover{background:rgba(11,42,74,.08)}.nom{font-weight:600;margin-right:6px}.meta{display:block;color:var(--gris);font-size:13px}
-.pastille{font-size:11px;padding:1px 7px;border-radius:9px;color:#fff;background:var(--gris);margin-right:4px}.chaud{background:var(--rouge)}.tiede{background:var(--orange)}.froid{background:#5b7a99}.humain{background:var(--vert)}.stop{background:#000}
+.pastille{display:inline-block;white-space:nowrap;margin-bottom:2px;font-size:11px;padding:1px 7px;border-radius:9px;color:#fff;background:var(--gris);margin-right:4px}.chaud{background:var(--rouge)}.tiede{background:var(--orange)}.froid{background:#5b7a99}.humain{background:var(--vert)}.stop{background:#000}
 .detail{padding:16px;min-width:0}.entete{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.entete h2{margin:0}.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 button,select{font:inherit;padding:7px 12px;border-radius:7px;border:1px solid var(--bord);background:var(--bleu);color:#fff;cursor:pointer}select{background:var(--carte);color:var(--texte)}
 .resume{background:rgba(11,42,74,.06);padding:10px;border-radius:8px}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;font-size:14px}dt{color:var(--gris)}dd{margin:0}
 .fil{display:flex;flex-direction:column;gap:8px;margin:16px 0}.bulle{max-width:80%;padding:8px 12px;border-radius:10px;word-wrap:break-word}.in{align-self:flex-start;background:rgba(127,127,127,.12)}.out{align-self:flex-end;background:rgba(31,143,95,.15)}
 .qui{font-size:12px;color:var(--gris)}.envoi{display:flex;gap:8px}.envoi textarea{flex:1;font:inherit;padding:8px;border-radius:7px;border:1px solid var(--bord);background:var(--carte);color:var(--texte)}
+.campagne{background:#6a3fb5}table{border-collapse:collapse;width:100%;margin:8px 0 12px;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bord)}th{color:var(--gris);font-weight:600}
 .alerte{background:rgba(192,57,43,.12);padding:10px;border-radius:8px}.vide{color:var(--gris);padding:24px;text-align:center}
 @media (max-width:760px){main{grid-template-columns:1fr;padding:12px}.liste{max-height:40vh}.bulle{max-width:92%}.envoi{flex-direction:column}}
 </style></head><body>
-<header><h1>JyVis Assurances · Prospects WhatsApp</h1>
+<header><h1><a href="jyvis" style="color:inherit;text-decoration:none">JyVis Assurances · Prospects</a></h1>
 <div class="stats"><span><b>${s.total ?? 0}</b>prospects</span><span><b>${s.semaine ?? 0}</b>cette semaine</span><span><b>${s.chauds ?? 0}</b>chauds</span><span><b>${s.a_reprendre ?? 0}</b>à reprendre</span><span><b>${s.convertis ?? 0}</b>convertis</span></div></header>
 ${ctx.erreur ? '<p class="alerte" style="margin:16px">Le message n’a pas pu être envoyé par WhatsApp (fenêtre de 24 h dépassée ou numéro invalide).</p>' : ''}
 <main><nav class="liste">${lignes}</nav><section class="detail">${detail}</section></main>
@@ -690,6 +710,25 @@ WITH u AS (
 SELECT $1::bigint AS id, $2::boolean AND EXISTS (SELECT 1 FROM i) AS envoye;
 """
 
+
+SQL_CONVERSIONS = """
+SELECT gclid, 'qualifie' AS etape, maj_le FROM prospects
+ WHERE gclid IS NOT NULL AND statut IN ('qualifie', 'rdv', 'devis_envoye', 'converti') AND cree_le > now() - interval '85 days'
+UNION ALL
+SELECT gclid, 'converti', maj_le FROM prospects
+ WHERE gclid IS NOT NULL AND statut = 'converti' AND cree_le > now() - interval '85 days'
+ORDER BY 3;
+"""
+
+JS_CSV = r"""
+// Format « Importer des conversions depuis des clics » de Google Ads.
+const noms = { qualifie: $env.GOOGLE_ADS_CONVERSION_QUALIFIE || 'Prospect qualifié', converti: $env.GOOGLE_ADS_CONVERSION_CLIENT || 'Client signé' };
+const f = d => new Date(d).toLocaleString('sv-SE', { timeZone: 'Europe/Paris' });
+const lignes = ['Parameters:TimeZone=Europe/Paris', 'Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency'];
+for (const { json: r } of $input.all()) if (r.gclid) lignes.push([r.gclid, noms[r.etape], f(r.maj_le), '', 'EUR'].join(','));
+return [{ json: { csv: lignes.join('\r\n') + '\r\n' } }];
+"""
+
 DEMANDE_AUTH = {"WWW-Authenticate": 'Basic realm="JyVis Assurances", charset="UTF-8"'}
 
 tableau = workflow(
@@ -719,6 +758,15 @@ tableau = workflow(
         sql("Appliquer l’action", (960, 420), SQL_ACTION, "[$json.id, $json.action, $json.statut]"),
         repondre("Retour à la fiche", (1200, 420), 303, "", {"Location": "=jyvis?id={{ $json.id }}"}, "noData"),
         repondre("Refuser l’action", (720, 560), 401, "Accès refusé", DEMANDE_AUTH),
+
+        webhook("Export des conversions", (0, 800), "GET", "jyvis-conversions", "responseNode"),
+        code("Contrôle d’accès (export)", (240, 800), JS_AUTH.replace("__SUITE__", "return [{ json: { ok: !!ok } }];")),
+        si("Export autorisé ?", (480, 800), "$json.ok === true"),
+        dict(sql("Conversions Google Ads", (720, 700), SQL_CONVERSIONS, "[]"), alwaysOutputData=True),
+        code("Fichier CSV", (960, 700), JS_CSV),
+        repondre("Télécharger", (1200, 700), 200, "={{ $json.csv }}",
+                 {"Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="conversions-google-ads.csv"', "Cache-Control": "no-store"}),
+        repondre("Refuser l’export", (720, 920), 401, "Accès refusé", DEMANDE_AUTH),
     ],
     [
         ("Page tableau de bord", 0, "Contrôle d’accès"),
@@ -740,10 +788,165 @@ tableau = workflow(
         ("Envoyer sur WhatsApp", 0, "Noter la réponse"),
         ("Noter la réponse", 0, "Retour après envoi"),
         ("Appliquer l’action", 0, "Retour à la fiche"),
+        ("Export des conversions", 0, "Contrôle d’accès (export)"),
+        ("Contrôle d’accès (export)", 0, "Export autorisé ?"),
+        ("Export autorisé ?", 0, "Conversions Google Ads"),
+        ("Export autorisé ?", 1, "Refuser l’export"),
+        ("Conversions Google Ads", 0, "Fichier CSV"),
+        ("Fichier CSV", 0, "Télécharger"),
     ],
 )
 
+
+# ======================================================================= 4. Prospects du site web
+JS_LEAD = r"""
+// Appel serveur à serveur depuis le site : en-tête « x-jyvis-cle » = LEADS_CLE.
+const crypto = require('crypto');
+const j = $input.first().json;
+const cle = String(j.headers?.['x-jyvis-cle'] || '');
+const attendu = String($env.LEADS_CLE || '');
+const h = v => crypto.createHash('sha256').update(v).digest();
+const ok = !!attendu && crypto.timingSafeEqual(h(cle), h(attendu));
+const b = j.body || {};
+const txt = (v, n) => String(v ?? '').trim().slice(0, n);
+// Numéro au format international sans « + » : 06… -> 336…, 0690… / 0590… (Guadeloupe) -> 590690…
+let tel = String(b.telephone || '').replace(/[^\d+]/g, '');
+if (tel.startsWith('+')) tel = tel.slice(1);
+else if (tel.startsWith('00')) tel = tel.slice(2);
+else if (/^0(590|690|691)\d{6}$/.test(tel)) tel = '590' + tel.slice(1);
+else if (/^0[1-9]\d{8}$/.test(tel)) tel = '33' + tel.slice(1);
+const valide = /^\d{8,15}$/.test(tel);
+const produits = ['auto', 'moto', 'habitation', 'rc_pro', 'decennale', 'multirisque_pro', 'cyber', 'sante', 'prevoyance', 'autre'];
+let produit = txt(b.produit, 40).toLowerCase().replace(/[-\s]/g, '_');
+if (produit === 'rc_decennale') produit = 'decennale';
+if (!produits.includes(produit)) produit = '';
+const infos = {};
+if (b.details && typeof b.details === 'object') for (const [k, v] of Object.entries(b.details).slice(0, 40)) infos[txt(k, 60)] = txt(typeof v === 'object' ? JSON.stringify(v) : v, 500);
+const nom = txt(b.nom, 120), email = txt(b.email, 200), message = txt(b.message, 2000);
+const lignes = [produit && 'Produit : ' + produit, message, ...Object.entries(infos).map(([k, v]) => k + ' : ' + v)].filter(Boolean);
+return [{ json: {
+  ok: ok && valide,
+  code: ok ? (valide ? 200 : 400) : 401,
+  wa_id: tel, nom, email, produit, infos,
+  texte: lignes.join('\n') || 'Demande de devis',
+  source: txt(b.source || b.utm_campaign, 60).toUpperCase().replace(/[^A-Z0-9_-]/g, '') ,
+  gclid: txt(b.gclid, 200).replace(/[^\w-]/g, ''),
+  consentement: b.consentement_whatsapp === true || b.consentement_whatsapp === 'true' || b.consentement_whatsapp === 'on',
+} }];
+"""
+
+SQL_LEAD = """
+WITH p AS (
+  INSERT INTO prospects (wa_id, nom, email, produit, infos, origine, source, gclid, score, statut, resume)
+  VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5::jsonb, 'site', NULLIF($6, ''), NULLIF($7, ''), 'tiede', 'nouveau',
+          'Demande de devis via le site' || COALESCE(' (' || NULLIF($4, '') || ')', ''))
+  ON CONFLICT (wa_id) DO UPDATE SET
+    nom = COALESCE(prospects.nom, EXCLUDED.nom),
+    email = COALESCE(EXCLUDED.email, prospects.email),
+    produit = COALESCE(EXCLUDED.produit, prospects.produit),
+    infos = prospects.infos || EXCLUDED.infos,
+    source = COALESCE(prospects.source, EXCLUDED.source),
+    gclid = COALESCE(EXCLUDED.gclid, prospects.gclid),
+    statut = CASE WHEN prospects.statut IN ('perdu') THEN 'nouveau' ELSE prospects.statut END,
+    maj_le = now()
+  RETURNING id, wa_id, nom, produit, infos, resume, score, opt_out, dernier_entrant
+), m AS (
+  INSERT INTO messages (prospect_id, sens, texte) SELECT id, 'site', $8 FROM p
+)
+SELECT p.*, p.id AS prospect_id,
+       $9::boolean AND NOT p.opt_out AND $10 <> '' AS envoyer_modele
+FROM p;
+"""
+
+JS_MODELE = r"""
+return $input.all().map(({ json: p }) => ({ json: {
+  prospect_id: p.prospect_id, wa_id: p.wa_id,
+  corps: {
+    messaging_product: 'whatsapp', to: p.wa_id, type: 'template',
+    template: {
+      name: $env.WHATSAPP_MODELE_BIENVENUE,
+      language: { code: $env.WHATSAPP_MODELE_LANGUE || 'fr' },
+      components: [{ type: 'body', parameters: [{ type: 'text', text: String(p.nom || '').split(' ')[0] || 'Madame, Monsieur' }] }],
+    },
+  },
+} }));
+"""
+
+SQL_MODELE_ENVOYE = """
+WITH u AS (
+  UPDATE prospects SET dernier_sortant = CASE WHEN $2::boolean THEN now() ELSE dernier_sortant END, maj_le = now()
+  WHERE id = $1::bigint RETURNING id
+)
+INSERT INTO messages (prospect_id, sens, texte)
+SELECT id, 'campagne', CASE WHEN $2::boolean THEN '' ELSE '[NON ENVOYÉ] ' END
+       || 'Modèle WhatsApp « ' || $3 || ' » envoyé (réponse attendue du prospect)' FROM u
+RETURNING prospect_id;
+"""
+
+site = workflow(
+    "jyvisWaSiteLead01", "JyVis – Prospects du site",
+    [
+        webhook("Demande du site", (0, 0), "POST", "jyvis-lead", "responseNode"),
+        code("Contrôler la demande", (240, 0), JS_LEAD),
+        si("Demande valide ?", (480, 0), "$json.ok === true"),
+        repondre("Refuser", (720, 160), "={{ $json.code }}", '={{ JSON.stringify({ ok: false, erreur: $json.code === 401 ? "clé invalide" : "téléphone invalide" }) }}',
+                 {"Content-Type": "application/json"}),
+        sql("Enregistrer le prospect", (720, -40), SQL_LEAD,
+            "[$json.wa_id, $json.nom, $json.email, $json.produit, JSON.stringify($json.infos), $json.source, $json.gclid, $json.texte,"
+            " $json.consentement, $env.WHATSAPP_MODELE_BIENVENUE || '']"),
+        repondre("Confirmer au site", (960, -40), 200, '={{ JSON.stringify({ ok: true, prospect: $json.prospect_id }) }}',
+                 {"Content-Type": "application/json"}),
+        code("Préparer l’alerte", (1200, 120), JS_EMAIL.replace("Prospect ${p.score === 'chaud' ? 'CHAUD' : 'à reprendre'}", "Demande de devis du site")),
+        node(
+            "E-mail au conseiller", "n8n-nodes-base.emailSend", 2.1, (1440, 120),
+            {
+                "fromEmail": "={{ $env.SMTP_FROM || $env.SMTP_USER }}",
+                "toEmail": "={{ $env.CONSEILLER_EMAIL }}",
+                "subject": "={{ $json.sujet }}",
+                "emailFormat": "html",
+                "html": "={{ $json.html }}",
+                "options": {},
+            },
+            credentials=SMTP_CRED, onError="continueRegularOutput",
+        ),
+        si("Message WhatsApp de bienvenue ?", (1200, -200), "$json.envoyer_modele === true"),
+        code("Préparer le modèle", (1440, -200), JS_MODELE),
+        node(
+            "Envoyer le modèle", "n8n-nodes-base.httpRequest", 4.2, (1680, -200),
+            {
+                "method": "POST",
+                "url": "=https://graph.facebook.com/{{ $env.GRAPH_API_VERSION || 'v23.0' }}/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+                "sendHeaders": True,
+                "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"}]},
+                "sendBody": True,
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.stringify($json.corps) }}",
+                "options": {"timeout": 30000},
+            },
+            retryOnFail=True, maxTries=3, waitBetweenTries=2000, onError="continueRegularOutput",
+        ),
+        sql("Noter l’envoi du modèle", (1920, -200), SQL_MODELE_ENVOYE,
+            "[$('Préparer le modèle').item.json.prospect_id, !!($json.messages && $json.messages[0] && $json.messages[0].id), $env.WHATSAPP_MODELE_BIENVENUE]"),
+    ],
+    [
+        ("Demande du site", 0, "Contrôler la demande"),
+        ("Contrôler la demande", 0, "Demande valide ?"),
+        ("Demande valide ?", 0, "Enregistrer le prospect"),
+        ("Demande valide ?", 1, "Refuser"),
+        ("Enregistrer le prospect", 0, "Confirmer au site"),
+        ("Confirmer au site", 0, "Message WhatsApp de bienvenue ?"),
+        ("Confirmer au site", 0, "Préparer l’alerte"),
+        ("Préparer l’alerte", 0, "E-mail au conseiller"),
+        ("Message WhatsApp de bienvenue ?", 0, "Préparer le modèle"),
+        ("Préparer le modèle", 0, "Envoyer le modèle"),
+        ("Envoyer le modèle", 0, "Noter l’envoi du modèle"),
+    ],
+)
+
+for n in tableau["nodes"]:
+    if n["name"] == "Conversions Google Ads":
+        n["parameters"]["options"] = {}
 SORTIE.mkdir(exist_ok=True)
-for wf, fichier in [(agent, "agent-whatsapp.json"), (relances, "relances-whatsapp.json"), (tableau, "tableau-de-bord.json")]:
+for wf, fichier in [(agent, "agent-whatsapp.json"), (relances, "relances-whatsapp.json"), (tableau, "tableau-de-bord.json"), (site, "prospects-site.json")]:
     (SORTIE / fichier).write_text(json.dumps(wf, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print("écrit", SORTIE / fichier)

@@ -32,6 +32,8 @@ L'agent ne donne **jamais de prix** et ne fait aucune promesse de garantie : le 
 - **Reprendre la main** (l'agent s'arrête) ou **la rendre à l'agent IA**.
 - **Répondre** au prospect directement depuis la page, tant que son dernier message date de moins de 24 h.
 - Changer le statut : nouveau, en cours, qualifié, RDV, devis envoyé, converti, perdu.
+- Provenance de chaque prospect (WhatsApp, site, code de campagne Google Ads) et bilan par campagne sur 30 jours.
+- Export des conversions pour Google Ads (`/webhook/jyvis-conversions`). Voir [../../campagnes/README.md](../../campagnes/README.md).
 
 Fonctionne sur téléphone.
 
@@ -69,6 +71,7 @@ Le script crée les tables, configure les identifiants n8n, importe et active le
 | JyVis – Agent WhatsApp | Reçoit les messages, fait répondre l'agent, met à jour la fiche, alerte |
 | JyVis – Relances WhatsApp | Toutes les heures, relance les prospects silencieux (une fois) |
 | JyVis – Tableau de bord WhatsApp | La page de suivi et les actions du conseiller |
+| JyVis – Prospects du site | Reçoit les demandes de devis du site, les ajoute au tableau de bord, envoie le modèle WhatsApp de bienvenue si le prospect l'a accepté |
 
 ### 4. Brancher Meta sur n8n
 

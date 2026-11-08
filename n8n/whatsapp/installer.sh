@@ -50,10 +50,10 @@ trap 'rm -rf local-files/.installation' EXIT
 docker compose exec -T n8n n8n import:credentials --input=/files/.installation/identifiants.json
 
 echo "4/5 Workflows…"
-for f in agent-whatsapp relances-whatsapp tableau-de-bord; do
+for f in agent-whatsapp relances-whatsapp tableau-de-bord prospects-site; do
   docker compose exec -T n8n n8n import:workflow --input="/files/.installation/$f.json"
 done
-for id in jyvisWaAgent00001 jyvisWaRelance001 jyvisWaTableau001; do
+for id in jyvisWaAgent00001 jyvisWaRelance001 jyvisWaTableau001 jyvisWaSiteLead01; do
   docker compose exec -T n8n n8n publish:workflow --id="$id"
 done
 
@@ -71,4 +71,6 @@ Installation terminée.
   URL de rappel à saisir dans Meta : https://${N8N_HOST}/webhook/whatsapp
   Jeton de vérification          : la valeur de WHATSAPP_VERIFY_TOKEN
   Tableau de bord                : https://${N8N_HOST}/webhook/jyvis  (identifiant : ${TABLEAU_UTILISATEUR:-jyvis})
+  Demandes du site (POST)        : https://${N8N_HOST}/webhook/jyvis-lead  (en-tête x-jyvis-cle = LEADS_CLE)
+  Conversions Google Ads (CSV)   : https://${N8N_HOST}/webhook/jyvis-conversions
 FIN
