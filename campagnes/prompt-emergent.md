@@ -3,7 +3,6 @@
 Le site est construit avec Emergent : son code ne se trouve pas dans ce dépôt. Copiez le texte ci-dessous dans Emergent, après avoir remplacé les éléments entre `<…>`.
 
 - `<AW-XXXXXXXXX>`, `<LIBELLE_DEVIS>`, `<LIBELLE_WHATSAPP>` : identifiants donnés par Google Ads lors de la création des conversions (voir [README.md](README.md), étape 2).
-- `<NUMERO_WHATSAPP>` : le numéro relié à l'agent IA, au format international sans « + » (ex. `33612345678`).
 - `<LEADS_CLE>` : la valeur de `LEADS_CLE` du fichier `.env` de n8n.
 
 ---
@@ -31,7 +30,7 @@ Merci d'apporter les modifications suivantes au site, sans changer le design :
 
 5. Boutons WhatsApp vers l'agent IA
    Remplace le lien actuel https://wa.me/message/XE3IM2IGGU5VE1 par
-   https://wa.me/<NUMERO_WHATSAPP>?text=<message encodé>
+   https://wa.me/33787775907?text=<message encodé>
    où le message est « Bonjour, je souhaite un devis » suivi, si une campagne est mémorisée (point 2),
    de « (réf. » + utm_campaign en majuscules + « ) ». Exemple : « Bonjour, je souhaite un devis (réf. GA-DECENNALE) ».
    Sur une page /devis/<type>, mets plutôt « Bonjour, je souhaite un devis <type> ».
