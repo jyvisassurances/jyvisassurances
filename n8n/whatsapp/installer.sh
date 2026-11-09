@@ -6,7 +6,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 [ -f .env ] || { echo "Fichier .env introuvable : copiez .env.example en .env et remplissez-le."; exit 1; }
-set -a; . ./.env; set +a
+# Lecture du .env sans l'exécuter (des valeurs contiennent des espaces).
+while IFS='=' read -r cle val; do
+  [[ "$cle" =~ ^[A-Z_][A-Z0-9_]*$ ]] && export "$cle=$val"
+done < .env
 
 manque=()
 for v in WHATSAPP_PHONE_NUMBER_ID WHATSAPP_ACCESS_TOKEN WHATSAPP_APP_SECRET WHATSAPP_VERIFY_TOKEN ANTHROPIC_API_KEY TABLEAU_MOT_DE_PASSE; do

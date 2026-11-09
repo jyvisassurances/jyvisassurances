@@ -14,7 +14,7 @@ Contenu :
 ## Prérequis
 
 - Un serveur Linux (VPS 2 Go de RAM minimum) avec Docker et Docker Compose.
-- Un nom de domaine, par ex. `n8n.jyvis-assurances.fr`, avec un enregistrement DNS **A** vers l'IP du serveur.
+- Un nom de domaine, par ex. `n8n.jyvis-assurances.com`, avec un enregistrement DNS **A** vers l'IP du serveur.
 - Ports 80 et 443 ouverts.
 
 ## Installation
