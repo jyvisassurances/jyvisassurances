@@ -30,7 +30,7 @@ Merci d'apporter les modifications suivantes au site, sans changer le design :
 
 5. Boutons WhatsApp vers l'agent IA
    Remplace le lien actuel https://wa.me/message/XE3IM2IGGU5VE1 par
-   https://wa.me/33787775907?text=<message encodé>
+   https://wa.me/33148209827?text=<message encodé>
    où le message est « Bonjour, je souhaite un devis » suivi, si une campagne est mémorisée (point 2),
    de « (réf. » + utm_campaign en majuscules + « ) ». Exemple : « Bonjour, je souhaite un devis (réf. GA-DECENNALE) ».
    Sur une page /devis/<type>, mets plutôt « Bonjour, je souhaite un devis <type> ».
