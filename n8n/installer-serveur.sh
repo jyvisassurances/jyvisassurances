@@ -13,7 +13,9 @@ DOSSIER="/opt/jyvis"
 
 titre() { printf '\n\033[1;34m== %s ==\033[0m\n' "$1"; }
 demander() { # demander "Question" "valeur par défaut" -> réponse
-  local rep; read -r -p "$1 ${2:+[$2] }: " rep < /dev/tty || true; echo "${rep:-$2}"
+  local rep=""
+  if [ -r /dev/tty ] && { true < /dev/tty; } 2>/dev/null; then read -r -p "$1 ${2:+[$2] }: " rep < /dev/tty || true; fi
+  echo "${rep:-$2}"
 }
 regler() { # regler CLE valeur  (dans .env)
   local cle="$1" val="$2"
